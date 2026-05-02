@@ -158,9 +158,9 @@ select option { background: var(--bg); }
           <div class="card-unit">Мбит/с</div>
         </div>
         <div class="card">
-          <div class="card-label">Измерений</div>
+          <div class="card-label">Скачано</div>
           <div class="card-value cw" id="samples-val">0</div>
-          <div class="card-unit">сэмплов</div>
+          <div class="card-unit">МБ</div>
         </div>
       </div>
 
@@ -195,8 +195,17 @@ select option { background: var(--bg); }
 
 <script>
 const MAX_POINTS = 120;
-let running = false, controller = null;
+const STREAMS = 4;
+const WINDOW_MS = 1500;
+const WARMUP_MS = 2000;
+const TICK_MS = 200;
+
+let running = false;
+let controllers = [];
 let history = [], sampleCount = 0, maxSpeed = 0, markerNext = false;
+let bytesLog = []; // { t, b } для sliding window
+let tickTimer = null;
+let totalBytes = 0;
 
 const ctx = document.getElementById('speedChart').getContext('2d');
 const chart = new Chart(ctx, {
@@ -234,7 +243,7 @@ function updateDisplay(mbps) {
   const avg60 = history.slice(-60).reduce((a,b)=>a+b,0) / Math.min(history.length, 60);
   document.getElementById('avg-val').textContent = avg60.toFixed(1);
   document.getElementById('max-val').textContent = maxSpeed.toFixed(1);
-  document.getElementById('samples-val').textContent = sampleCount;
+  document.getElementById('samples-val').textContent = (totalBytes / 1e6).toFixed(0);
   chart.data.labels.push(ts());
   chart.data.datasets[0].data.push(parseFloat(mbps.toFixed(2)));
   if (chart.data.labels.length > MAX_POINTS) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
@@ -242,53 +251,78 @@ function updateDisplay(mbps) {
   chart.update('none');
 }
 
-async function measureLoop() {
+// Один бесконечный стрим — когда чанк кончается, сразу запускает новый
+async function streamWorker(id) {
+  const bytes = parseInt(document.getElementById('chunk-size').value);
   while (running) {
+    const ac = new AbortController();
+    controllers[id] = ac;
     try {
-      controller = new AbortController();
-      const bytes = parseInt(document.getElementById('chunk-size').value);
-      const url = `https://speed.cloudflare.com/__down?bytes=${bytes}&r=${Date.now()}`;
-      const startTime = performance.now();
-      let loaded = 0, lastUpdate = startTime;
-      const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+      const url = `https://speed.cloudflare.com/__down?bytes=${bytes}&r=${Date.now()}_${id}`;
+      const res = await fetch(url, { signal: ac.signal, cache: 'no-store' });
       const reader = res.body.getReader();
       while (running) {
         const { done, value } = await reader.read();
         if (done) break;
-        loaded += value.length;
-        const now = performance.now();
-        if (now - lastUpdate >= 300) {
-          updateDisplay((loaded * 8) / ((now - startTime) / 1000 * 1e6));
-          lastUpdate = now;
-        }
+        bytesLog.push({ t: performance.now(), b: value.length });
+        totalBytes += value.length;
       }
       if (!running) { reader.cancel(); break; }
-      const elapsed = (performance.now() - startTime) / 1000;
-      const mbps = (loaded * 8) / (elapsed * 1e6);
-      updateDisplay(mbps);
-      addLog(`чанк ${(bytes/1e6).toFixed(0)} МБ → ${mbps.toFixed(1)} Мбит/с`);
     } catch(e) {
       if (!running) break;
-      addLog('ошибка: ' + e.message);
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 800));
     }
   }
+}
+
+// Тикер — каждые TICK_MS считает скорость по sliding window
+function startTicker(startTime) {
+  tickTimer = setInterval(() => {
+    if (!running) return;
+    const now = performance.now();
+    const warmup = now - startTime < WARMUP_MS;
+
+    // убираем старые записи за пределами окна
+    const cutoff = now - WINDOW_MS;
+    while (bytesLog.length && bytesLog[0].t < cutoff) bytesLog.shift();
+
+    if (warmup || bytesLog.length < 2) {
+      document.getElementById('speed-value').textContent = '…';
+      document.getElementById('speed-value').style.color = '#5a7a72';
+      document.getElementById('status-text').textContent = 'разгон TCP...';
+      return;
+    }
+
+    document.getElementById('status-text').textContent = 'измерение...';
+    const totalBytes = bytesLog.reduce((s, e) => s + e.b, 0);
+    const windowSec = (now - bytesLog[0].t) / 1000;
+    const mbps = (totalBytes * 8) / (windowSec * 1e6);
+    updateDisplay(mbps);
+  }, TICK_MS);
 }
 
 function startTest() {
   if (running) return;
   running = true;
+  bytesLog = [];
+  totalBytes = 0;
+  controllers = new Array(STREAMS);
   document.getElementById('btn-start').disabled = true;
   document.getElementById('btn-stop').disabled = false;
   document.getElementById('status-dot').className = 'running';
-  document.getElementById('status-text').textContent = 'измерение...';
-  addLog('тест запущен');
-  measureLoop();
+  document.getElementById('status-text').textContent = 'разгон TCP...';
+  addLog(`запуск ${STREAMS} параллельных потоков`);
+  const startTime = performance.now();
+  for (let i = 0; i < STREAMS; i++) streamWorker(i);
+  startTicker(startTime);
 }
 
 function stopTest() {
   running = false;
-  if (controller) controller.abort();
+  clearInterval(tickTimer);
+  controllers.forEach(ac => { try { ac.abort(); } catch(e){} });
+  controllers = [];
+  bytesLog = [];
   document.getElementById('btn-start').disabled = false;
   document.getElementById('btn-stop').disabled = true;
   document.getElementById('status-dot').className = '';
@@ -299,7 +333,7 @@ function stopTest() {
 }
 
 function resetStats() {
-  history = []; sampleCount = 0; maxSpeed = 0;
+  history = []; sampleCount = 0; maxSpeed = 0; totalBytes = 0;
   document.getElementById('avg-val').textContent = '—';
   document.getElementById('max-val').textContent = '—';
   document.getElementById('samples-val').textContent = '0';
