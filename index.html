@@ -312,26 +312,58 @@ function resetStats() {
 function logMarker() { markerNext = true; addLog('⚑ маркер при следующем сэмпле', 'mark'); }
 
 let currentIP = null;
+
+const IP_PROVIDERS = [
+  async () => {
+    const d = await fetch('https://ipwho.is/', { cache: 'no-store' }).then(r => r.json());
+    if (!d.success && d.success !== undefined) throw new Error('failed');
+    return { ip: d.ip, country: d.country, flag: d.flag?.emoji || '', org: d.connection?.org || d.connection?.isp || '', city: d.city || '' };
+  },
+  async () => {
+    const d = await fetch('https://ipapi.co/json/', { cache: 'no-store' }).then(r => r.json());
+    if (d.error) throw new Error(d.reason);
+    return { ip: d.ip, country: d.country_name, flag: d.country_flag_emoji || '', org: d.org || '', city: d.city || '' };
+  },
+  async () => {
+    const d = await fetch('https://ipinfo.io/json', { cache: 'no-store' }).then(r => r.json());
+    return { ip: d.ip, country: d.country, flag: '', org: d.org || '', city: d.city || '' };
+  },
+  async () => {
+    const d = await fetch('https://ip-api.com/json/', { cache: 'no-store' }).then(r => r.json());
+    if (d.status === 'fail') throw new Error('failed');
+    return { ip: d.query, country: d.country, flag: '', org: d.isp || d.org || '', city: d.city || '' };
+  },
+];
+
+let providerIndex = 0;
+
 async function fetchIP() {
-  try {
-    const res = await fetch('https://ipapi.co/json/', { cache: 'no-store' });
-    const d = await res.json();
-    const newIP = d.ip;
-    if (currentIP && currentIP !== newIP) {
-      addLog(`⚑ IP: ${currentIP} → ${newIP} (${d.country_name}, ${d.org})`, 'mark');
-      const el = document.getElementById('ip-addr');
-      el.classList.remove('changed'); void el.offsetWidth; el.classList.add('changed');
-      setTimeout(() => el.classList.remove('changed'), 2500);
+  const total = IP_PROVIDERS.length;
+  for (let attempt = 0; attempt < total; attempt++) {
+    const idx = (providerIndex + attempt) % total;
+    try {
+      const d = await IP_PROVIDERS[idx]();
+      providerIndex = idx; // запомним работающий провайдер
+      const newIP = d.ip;
+      if (currentIP && currentIP !== newIP) {
+        addLog(`⚑ IP: ${currentIP} → ${newIP} (${d.country}, ${d.org})`, 'mark');
+        const el = document.getElementById('ip-addr');
+        el.classList.remove('changed'); void el.offsetWidth; el.classList.add('changed');
+        setTimeout(() => el.classList.remove('changed'), 2500);
+      }
+      currentIP = newIP;
+      document.getElementById('ip-addr').textContent = newIP;
+      document.getElementById('ip-country').textContent = (d.flag ? d.flag + ' ' : '') + (d.country || '—');
+      document.getElementById('ip-org').textContent = (d.org || '—').replace(/^AS\d+\s*/, '');
+      document.getElementById('ip-city').textContent = d.city || '—';
+      document.getElementById('ip-status').textContent = 'обновлено ' + ts();
+      return;
+    } catch(e) {
+      // этот провайдер не сработал, пробуем следующий
     }
-    currentIP = newIP;
-    document.getElementById('ip-addr').textContent = newIP;
-    document.getElementById('ip-country').textContent = (d.country_flag_emoji || '') + ' ' + (d.country_name || '—');
-    document.getElementById('ip-org').textContent = (d.org || '—').replace(/^AS\d+\s*/, '');
-    document.getElementById('ip-city').textContent = d.city || '—';
-    document.getElementById('ip-status').textContent = 'обновлено ' + ts();
-  } catch(e) {
-    document.getElementById('ip-status').textContent = 'ошибка IP API';
   }
+  // все упали
+  document.getElementById('ip-status').textContent = 'ошибка всех IP API';
 }
 fetchIP();
 setInterval(fetchIP, 5000);
