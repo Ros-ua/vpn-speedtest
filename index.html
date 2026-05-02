@@ -6,356 +6,203 @@
 <title>VPN Speed Monitor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
-  :root {
-    --bg: #0a0e12;
-    --surface: #111820;
-    --border: rgba(0,210,170,0.15);
-    --accent: #00d2aa;
-    --accent2: #00aaff;
-    --text: #e0ede9;
-    --muted: #5a7a72;
-    --danger: #ff5f5f;
-    --warn: #ffb347;
-    --grid: rgba(0,210,170,0.05);
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Courier New', monospace;
-    min-height: 100vh;
-    padding: 24px;
-  }
-  header {
-    display: flex;
-    align-items: baseline;
-    gap: 16px;
-    margin-bottom: 28px;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 14px;
-  }
-  header h1 { font-size: 13px; color: var(--accent); letter-spacing: 0.2em; text-transform: uppercase; font-weight: normal; }
-  header span { font-size: 11px; color: var(--muted); }
-  #status-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--muted);
-    display: inline-block;
-    margin-right: 6px;
-    transition: background 0.3s;
-  }
-  #status-dot.running { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse 1.5s infinite; }
-  #status-dot.error { background: var(--danger); }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+:root {
+  --bg: #0a0e12;
+  --surface: #111820;
+  --border: rgba(0,210,170,0.15);
+  --accent: #00d2aa;
+  --accent2: #00aaff;
+  --text: #e0ede9;
+  --muted: #5a7a72;
+  --danger: #ff5f5f;
+  --warn: #ffb347;
+  --grid: rgba(0,210,170,0.05);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; }
 
-  .ip-bar {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px 16px;
-    margin-bottom: 16px;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    font-size: 12px;
-    flex-wrap: wrap;
-  }
-  .ip-bar .label { color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; font-size: 10px; }
-  #ip-value { color: var(--accent); font-size: 15px; font-weight: bold; letter-spacing: 0.05em; }
-  #ip-country { color: var(--muted); }
-  #ip-changed {
-    margin-left: auto;
-    background: rgba(255,180,0,0.1);
-    border: 1px solid var(--warn);
-    color: var(--warn);
-    border-radius: 4px;
-    padding: 3px 10px;
-    font-size: 11px;
-    display: none;
-    animation: fadeIn 0.3s;
-  }
-  @keyframes fadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:none} }
-  #ip-value.changed { color: var(--warn); animation: flash 0.6s; }
-  @keyframes flash { 0%,100%{color:var(--warn)} 50%{color:#fff} }
+.shell { display: flex; flex-direction: column; height: 100vh; padding: 14px 16px; gap: 10px; }
 
-  .ip-bar {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 12px 18px;
-    margin-bottom: 16px;
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    flex-wrap: wrap;
-    font-size: 13px;
-  }
-  .ip-bar .ip-addr {
-    font-size: 18px;
-    font-weight: bold;
-    color: var(--accent);
-    letter-spacing: 0.05em;
-    transition: color 0.3s;
-  }
-  .ip-bar .ip-addr.changed { color: var(--warn); animation: flaship 1.5s; }
-  @keyframes flaship { 0%,100%{opacity:1} 30%{opacity:0.2} }
-  .ip-field { display: flex; flex-direction: column; gap: 2px; }
-  .ip-field .lbl { font-size: 10px; color: var(--muted); letter-spacing: 0.15em; text-transform: uppercase; }
-  .ip-field .val { font-size: 13px; color: var(--text); }
-  .ip-sep { width: 1px; height: 30px; background: var(--border); }
-  #ip-status { font-size: 10px; color: var(--muted); margin-left: auto; }
+header { display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--border); padding-bottom: 10px; flex-shrink: 0; }
+header h1 { font-size: 12px; color: var(--accent); letter-spacing: 0.2em; text-transform: uppercase; font-weight: normal; }
+#status-text { font-size: 11px; color: var(--muted); }
+#status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
+#status-dot.running { background: var(--accent); animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
 
-  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 24px; }
-  @media(max-width:600px){ .grid { grid-template-columns: 1fr 1fr; } }
+.ip-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 8px 14px; display: flex; align-items: center; gap: 18px; flex-shrink: 0; }
+.ip-field { display: flex; flex-direction: column; gap: 1px; }
+.ip-field .lbl { font-size: 9px; color: var(--muted); letter-spacing: 0.15em; text-transform: uppercase; }
+.ip-field .val { font-size: 12px; color: var(--text); }
+#ip-addr { font-size: 15px; font-weight: bold; color: var(--accent); letter-spacing: 0.05em; transition: color 0.3s; }
+#ip-addr.changed { color: var(--warn); animation: flaship 1.5s; }
+@keyframes flaship { 0%,100%{opacity:1} 30%{opacity:0.15} }
+.ip-sep { width: 1px; height: 26px; background: var(--border); flex-shrink: 0; }
+#ip-status { font-size: 9px; color: var(--muted); margin-left: auto; }
 
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 14px 16px;
-  }
-  .card-label { font-size: 10px; color: var(--muted); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 6px; }
-  .card-value { font-size: 28px; font-weight: bold; color: var(--accent); line-height: 1; }
-  .card-value.accent2 { color: var(--accent2); }
-  .card-value.warn { color: var(--warn); }
-  .card-unit { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.main { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex: 1; min-height: 0; }
 
-  .big-speed {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 28px 24px;
-    margin-bottom: 24px;
-    text-align: center;
-    position: relative;
-    overflow: hidden;
-  }
-  .big-speed::before {
-    content: '';
-    position: absolute; inset: 0;
-    background: repeating-linear-gradient(0deg, var(--grid) 0px, var(--grid) 1px, transparent 1px, transparent 32px);
-    pointer-events: none;
-  }
-  #speed-value {
-    font-size: 80px;
-    font-weight: bold;
-    color: var(--accent);
-    line-height: 1;
-    transition: color 0.4s;
-    position: relative;
-  }
-  #speed-unit { font-size: 18px; color: var(--muted); margin-top: 6px; letter-spacing: 0.1em; position: relative; }
-  #speed-label { font-size: 11px; color: var(--muted); margin-top: 10px; letter-spacing: 0.2em; text-transform: uppercase; position: relative; }
+.left { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 
-  .chart-wrap {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 16px;
-    margin-bottom: 20px;
-    position: relative;
-    height: 220px;
-  }
+.big-speed {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  position: relative; overflow: hidden; flex-shrink: 0; padding: 16px 0 12px;
+}
+.big-speed::before {
+  content: ''; position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, var(--grid) 0px, var(--grid) 1px, transparent 1px, transparent 28px);
+  pointer-events: none;
+}
+#speed-value { font-size: 72px; font-weight: bold; color: var(--accent); line-height: 1; transition: color 0.4s; position: relative; z-index: 1; }
+#speed-unit { font-size: 14px; color: var(--muted); margin-top: 4px; letter-spacing: 0.1em; position: relative; }
+#speed-label { font-size: 9px; color: var(--muted); margin-top: 5px; letter-spacing: 0.2em; text-transform: uppercase; position: relative; }
 
-  .controls {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    flex-wrap: wrap;
-    margin-bottom: 16px;
-  }
-  button {
-    background: transparent;
-    border: 1px solid var(--accent);
-    color: var(--accent);
-    font-family: 'Courier New', monospace;
-    font-size: 12px;
-    padding: 8px 18px;
-    border-radius: 4px;
-    cursor: pointer;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    transition: background 0.2s, color 0.2s;
-  }
-  button:hover { background: var(--accent); color: var(--bg); }
-  button.danger { border-color: var(--danger); color: var(--danger); }
-  button.danger:hover { background: var(--danger); color: var(--bg); }
-  button:disabled { opacity: 0.3; cursor: default; }
-  button:disabled:hover { background: transparent; color: var(--accent); }
+.stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; flex-shrink: 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 9px 12px; }
+.card-label { font-size: 9px; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 4px; }
+.card-value { font-size: 22px; font-weight: bold; color: var(--accent); line-height: 1; }
+.card-value.c2 { color: var(--accent2); }
+.card-value.cw { color: var(--warn); }
+.card-unit { font-size: 10px; color: var(--muted); margin-top: 3px; }
 
-  select {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-    font-family: 'Courier New', monospace;
-    font-size: 12px;
-    padding: 8px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  select option { background: var(--bg); }
+.controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex-shrink: 0; }
+button {
+  background: transparent; border: 1px solid var(--accent); color: var(--accent);
+  font-family: 'Courier New', monospace; font-size: 11px; padding: 6px 12px; border-radius: 4px;
+  cursor: pointer; letter-spacing: 0.08em; text-transform: uppercase; transition: background 0.15s, color 0.15s;
+}
+button:hover { background: var(--accent); color: var(--bg); }
+button.danger { border-color: var(--danger); color: var(--danger); }
+button.danger:hover { background: var(--danger); color: var(--bg); }
+button:disabled { opacity: 0.28; cursor: default; }
+button:disabled:hover { background: transparent; color: var(--accent); }
+select { background: var(--surface); border: 1px solid var(--border); color: var(--text); font-family: 'Courier New', monospace; font-size: 11px; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+select option { background: var(--bg); }
 
-  #log {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 12px 16px;
-    font-size: 11px;
-    max-height: 140px;
-    overflow-y: auto;
-    color: var(--muted);
-    line-height: 1.8;
-  }
-  #log .entry { display: flex; gap: 12px; }
-  #log .entry .ts { color: var(--accent); min-width: 80px; }
-  #log .entry .spd { color: var(--text); font-weight: bold; }
-  #log .entry .mark { color: var(--warn); }
-  #log::-webkit-scrollbar { width: 4px; }
-  #log::-webkit-scrollbar-track { background: var(--bg); }
-  #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.chart-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 12px; flex: 1; min-height: 0; position: relative; }
 
-  .section-title { font-size: 10px; color: var(--muted); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 10px; }
+.right { display: flex; flex-direction: column; min-height: 0; }
+.log-header { font-size: 9px; color: var(--muted); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 6px; flex-shrink: 0; }
+#log {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
+  padding: 10px 14px; font-size: 11px; flex: 1; overflow-y: auto;
+  color: var(--muted); line-height: 1.95; min-height: 0;
+}
+#log .entry { display: flex; gap: 10px; }
+#log .entry .ts { color: var(--accent); min-width: 72px; flex-shrink: 0; }
+#log .entry .mark { color: var(--warn); }
+#log::-webkit-scrollbar { width: 3px; }
+#log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 </style>
 </head>
 <body>
+<div class="shell">
 
-<header>
-  <h1><span id="status-dot"></span>VPN Speed Monitor</h1>
-  <span id="status-text">остановлен</span>
-</header>
+  <header>
+    <h1><span id="status-dot"></span>VPN Speed Monitor</h1>
+    <span id="status-text">остановлен</span>
+  </header>
 
-<div class="ip-bar">
-  <span class="label">Внешний IP</span>
-  <span id="ip-value">определяется...</span>
-  <span id="ip-country"></span>
-  <span id="ip-org"></span>
-  <span id="ip-changed">⚑ IP сменился!</span>
+  <div class="ip-bar">
+    <div class="ip-field">
+      <div class="lbl">Публичный IP</div>
+      <div id="ip-addr">—</div>
+    </div>
+    <div class="ip-sep"></div>
+    <div class="ip-field">
+      <div class="lbl">Страна</div>
+      <div class="val" id="ip-country">—</div>
+    </div>
+    <div class="ip-sep"></div>
+    <div class="ip-field">
+      <div class="lbl">Провайдер / VPN</div>
+      <div class="val" id="ip-org">—</div>
+    </div>
+    <div class="ip-sep"></div>
+    <div class="ip-field">
+      <div class="lbl">Город</div>
+      <div class="val" id="ip-city">—</div>
+    </div>
+    <span id="ip-status">определение...</span>
+  </div>
+
+  <div class="main">
+
+    <div class="left">
+      <div class="big-speed">
+        <div id="speed-value">—</div>
+        <div id="speed-unit">Мбит/с</div>
+        <div id="speed-label">скорость скачивания</div>
+      </div>
+
+      <div class="stats">
+        <div class="card">
+          <div class="card-label">Средняя (60с)</div>
+          <div class="card-value c2" id="avg-val">—</div>
+          <div class="card-unit">Мбит/с</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Максимум</div>
+          <div class="card-value" id="max-val">—</div>
+          <div class="card-unit">Мбит/с</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Измерений</div>
+          <div class="card-value cw" id="samples-val">0</div>
+          <div class="card-unit">сэмплов</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="btn-start" onclick="startTest()">▶ Старт</button>
+        <button id="btn-stop" onclick="stopTest()" class="danger" disabled>■ Стоп</button>
+        <button onclick="resetStats()">↺ Сброс</button>
+        <select id="chunk-size">
+          <option value="5000000">5 МБ (рваный)</option>
+          <option value="25000000">25 МБ</option>
+          <option value="100000000" selected>100 МБ</option>
+          <option value="500000000">500 МБ (плавный)</option>
+          <option value="2000000000">2 ГБ (∞)</option>
+        </select>
+        <button onclick="logMarker()">⚑ Маркер</button>
+      </div>
+
+      <div class="chart-wrap">
+        <canvas id="speedChart" role="img" aria-label="График скорости скачивания во времени"></canvas>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="log-header">Лог</div>
+      <div id="log">
+        <div class="entry" style="color:#2e4a44">// Старт → меняй сервер VPN → смотри IP и скорость</div>
+      </div>
+    </div>
+
+  </div>
 </div>
-
-<div class="big-speed">
-  <div id="speed-value">—</div>
-  <div id="speed-unit">Мбит/с</div>
-  <div id="speed-label">текущая скорость скачивания</div>
-</div>
-
-<div class="ip-bar">
-  <div class="ip-field">
-    <div class="lbl">Публичный IP</div>
-    <div class="ip-addr" id="ip-addr">—</div>
-  </div>
-  <div class="ip-sep"></div>
-  <div class="ip-field">
-    <div class="lbl">Страна</div>
-    <div class="val" id="ip-country">—</div>
-  </div>
-  <div class="ip-sep"></div>
-  <div class="ip-field">
-    <div class="lbl">Провайдер / VPN</div>
-    <div class="val" id="ip-org">—</div>
-  </div>
-  <div class="ip-sep"></div>
-  <div class="ip-field">
-    <div class="lbl">Город</div>
-    <div class="val" id="ip-city">—</div>
-  </div>
-  <span id="ip-status">обновление...</span>
-</div>
-
-<div class="grid">
-  <div class="card">
-    <div class="card-label">Средняя (60с)</div>
-    <div class="card-value accent2" id="avg-val">—</div>
-    <div class="card-unit">Мбит/с</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Максимум</div>
-    <div class="card-value" id="max-val">—</div>
-    <div class="card-unit">Мбит/с</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Измерений</div>
-    <div class="card-value warn" id="samples-val">0</div>
-    <div class="card-unit">сэмплов</div>
-  </div>
-</div>
-
-<div class="controls">
-  <button id="btn-start" onclick="startTest()">▶ Старт</button>
-  <button id="btn-stop" onclick="stopTest()" class="danger" disabled>■ Стоп</button>
-  <button onclick="resetStats()">↺ Сброс</button>
-  <select id="chunk-size" title="Размер чанка">
-    <option value="5000000">5 МБ (рваный)</option>
-    <option value="25000000">25 МБ</option>
-    <option value="100000000" selected>100 МБ (рекомендуется)</option>
-    <option value="500000000">500 МБ (плавный)</option>
-    <option value="2000000000">2 ГБ (∞ поток)</option>
-  </select>
-  <button onclick="logMarker()">⚑ Маркер</button>
-</div>
-
-<div class="section-title">История скорости</div>
-<div class="chart-wrap">
-  <canvas id="speedChart" role="img" aria-label="График скорости скачивания во времени"></canvas>
-</div>
-
-<div class="section-title">Лог</div>
-<div id="log"><div class="entry" style="color:#3a5a52">// нажмите Старт, измените сервер VPN и смотрите как меняется скорость в реальном времени</div></div>
 
 <script>
 const MAX_POINTS = 120;
-let running = false;
-let controller = null;
-let history = [];
-let sampleCount = 0;
-let maxSpeed = 0;
-let markerNext = false;
+let running = false, controller = null;
+let history = [], sampleCount = 0, maxSpeed = 0, markerNext = false;
 
 const ctx = document.getElementById('speedChart').getContext('2d');
 const chart = new Chart(ctx, {
   type: 'line',
-  data: {
-    labels: [],
-    datasets: [{
-      label: 'Скорость',
-      data: [],
-      borderColor: '#00d2aa',
-      backgroundColor: 'rgba(0,210,170,0.08)',
-      borderWidth: 1.5,
-      fill: true,
-      tension: 0.3,
-      pointRadius: 0,
-      pointHoverRadius: 4,
-    }]
-  },
+  data: { labels: [], datasets: [{ data: [], borderColor: '#00d2aa', backgroundColor: 'rgba(0,210,170,0.07)', borderWidth: 1.5, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 3 }] },
   options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: { duration: 200 },
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        callbacks: { label: ctx => ctx.raw.toFixed(1) + ' Мбит/с' }
-      }
-    },
+    responsive: true, maintainAspectRatio: false, animation: { duration: 150 },
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.raw.toFixed(1) + ' Мбит/с' } } },
     scales: {
-      x: {
-        ticks: { color: '#5a7a72', font: { family: 'Courier New', size: 10 }, maxTicksLimit: 8, autoSkip: true },
-        grid: { color: 'rgba(0,210,170,0.06)' },
-        border: { color: 'rgba(0,210,170,0.15)' }
-      },
-      y: {
-        min: 0,
-        ticks: { color: '#5a7a72', font: { family: 'Courier New', size: 10 }, callback: v => v + ' М' },
-        grid: { color: 'rgba(0,210,170,0.06)' },
-        border: { color: 'rgba(0,210,170,0.15)' }
-      }
+      x: { ticks: { color: '#5a7a72', font: { family: 'Courier New', size: 9 }, maxTicksLimit: 6, autoSkip: true }, grid: { color: 'rgba(0,210,170,0.05)' }, border: { color: 'rgba(0,210,170,0.12)' } },
+      y: { min: 0, ticks: { color: '#5a7a72', font: { family: 'Courier New', size: 9 }, callback: v => v + ' М' }, grid: { color: 'rgba(0,210,170,0.05)' }, border: { color: 'rgba(0,210,170,0.12)' } }
     }
   }
 });
 
-function ts() {
-  const d = new Date();
-  return d.toTimeString().slice(0,8);
-}
+function ts() { return new Date().toTimeString().slice(0,8); }
 
 function addLog(msg, cls='') {
   const log = document.getElementById('log');
@@ -369,34 +216,19 @@ function addLog(msg, cls='') {
 function updateDisplay(mbps) {
   const el = document.getElementById('speed-value');
   el.textContent = mbps.toFixed(1);
-  if (mbps < 5) el.style.color = '#ff5f5f';
-  else if (mbps < 20) el.style.color = '#ffb347';
-  else el.style.color = '#00d2aa';
-
+  el.style.color = mbps < 5 ? '#ff5f5f' : mbps < 20 ? '#ffb347' : '#00d2aa';
   sampleCount++;
   if (mbps > maxSpeed) maxSpeed = mbps;
   history.push(mbps);
   if (history.length > MAX_POINTS) history.shift();
-
   const avg60 = history.slice(-60).reduce((a,b)=>a+b,0) / Math.min(history.length, 60);
-
   document.getElementById('avg-val').textContent = avg60.toFixed(1);
   document.getElementById('max-val').textContent = maxSpeed.toFixed(1);
   document.getElementById('samples-val').textContent = sampleCount;
-
-  const now = ts();
-  chart.data.labels.push(now);
+  chart.data.labels.push(ts());
   chart.data.datasets[0].data.push(parseFloat(mbps.toFixed(2)));
-  if (chart.data.labels.length > MAX_POINTS) {
-    chart.data.labels.shift();
-    chart.data.datasets[0].data.shift();
-  }
-
-  if (markerNext) {
-    addLog(`⚑ МАРКЕР | ${mbps.toFixed(1)} Мбит/с`, 'mark');
-    markerNext = false;
-  }
-
+  if (chart.data.labels.length > MAX_POINTS) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
+  if (markerNext) { addLog(`⚑ МАРКЕР | ${mbps.toFixed(1)} Мбит/с`, 'mark'); markerNext = false; }
   chart.update('none');
 }
 
@@ -407,31 +239,24 @@ async function measureLoop() {
       const bytes = parseInt(document.getElementById('chunk-size').value);
       const url = `https://speed.cloudflare.com/__down?bytes=${bytes}&r=${Date.now()}`;
       const startTime = performance.now();
-      let loaded = 0;
-      let lastUpdate = startTime;
-
+      let loaded = 0, lastUpdate = startTime;
       const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
       const reader = res.body.getReader();
-
       while (running) {
         const { done, value } = await reader.read();
         if (done) break;
         loaded += value.length;
         const now = performance.now();
         if (now - lastUpdate >= 300) {
-          const elapsed = (now - startTime) / 1000;
-          const mbps = (loaded * 8) / (elapsed * 1e6);
-          updateDisplay(mbps);
+          updateDisplay((loaded * 8) / ((now - startTime) / 1000 * 1e6));
           lastUpdate = now;
         }
       }
       if (!running) { reader.cancel(); break; }
-
       const elapsed = (performance.now() - startTime) / 1000;
       const mbps = (loaded * 8) / (elapsed * 1e6);
       updateDisplay(mbps);
-      addLog(`завершён чанк ${(bytes/1e6).toFixed(0)} МБ → ${mbps.toFixed(1)} Мбит/с`);
-
+      addLog(`чанк ${(bytes/1e6).toFixed(0)} МБ → ${mbps.toFixed(1)} Мбит/с`);
     } catch(e) {
       if (!running) break;
       addLog('ошибка: ' + e.message);
@@ -464,24 +289,17 @@ function stopTest() {
 }
 
 function resetStats() {
-  history = [];
-  sampleCount = 0;
-  maxSpeed = 0;
+  history = []; sampleCount = 0; maxSpeed = 0;
   document.getElementById('avg-val').textContent = '—';
   document.getElementById('max-val').textContent = '—';
   document.getElementById('samples-val').textContent = '0';
-  chart.data.labels = [];
-  chart.data.datasets[0].data = [];
+  chart.data.labels = []; chart.data.datasets[0].data = [];
   chart.update();
   document.getElementById('log').innerHTML = '';
   addLog('статистика сброшена');
 }
 
-function logMarker() {
-  markerNext = true;
-  addLog('⚑ маркер будет добавлен при следующем сэмпле', 'mark');
-}
-
+function logMarker() { markerNext = true; addLog('⚑ маркер при следующем сэмпле', 'mark'); }
 
 let currentIP = null;
 async function fetchIP() {
@@ -490,12 +308,10 @@ async function fetchIP() {
     const d = await res.json();
     const newIP = d.ip;
     if (currentIP && currentIP !== newIP) {
-      addLog(`IP сменился: ${currentIP} → ${newIP} (${d.country_name}, ${d.org})`, 'mark');
+      addLog(`⚑ IP: ${currentIP} → ${newIP} (${d.country_name}, ${d.org})`, 'mark');
       const el = document.getElementById('ip-addr');
-      el.classList.remove('changed');
-      void el.offsetWidth;
-      el.classList.add('changed');
-      setTimeout(() => el.classList.remove('changed'), 2000);
+      el.classList.remove('changed'); void el.offsetWidth; el.classList.add('changed');
+      setTimeout(() => el.classList.remove('changed'), 2500);
     }
     currentIP = newIP;
     document.getElementById('ip-addr').textContent = newIP;
@@ -509,8 +325,6 @@ async function fetchIP() {
 }
 fetchIP();
 setInterval(fetchIP, 5000);
-
-
 </script>
 </body>
 </html>
