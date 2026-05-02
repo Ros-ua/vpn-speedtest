@@ -47,6 +47,36 @@
   #status-dot.error { background: var(--danger); }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
+  .ip-bar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 12px;
+    flex-wrap: wrap;
+  }
+  .ip-bar .label { color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; font-size: 10px; }
+  #ip-value { color: var(--accent); font-size: 15px; font-weight: bold; letter-spacing: 0.05em; }
+  #ip-country { color: var(--muted); }
+  #ip-changed {
+    margin-left: auto;
+    background: rgba(255,180,0,0.1);
+    border: 1px solid var(--warn);
+    color: var(--warn);
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-size: 11px;
+    display: none;
+    animation: fadeIn 0.3s;
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:none} }
+  #ip-value.changed { color: var(--warn); animation: flash 0.6s; }
+  @keyframes flash { 0%,100%{color:var(--warn)} 50%{color:#fff} }
+
   .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 24px; }
   @media(max-width:600px){ .grid { grid-template-columns: 1fr 1fr; } }
 
@@ -165,6 +195,14 @@
   <h1><span id="status-dot"></span>VPN Speed Monitor</h1>
   <span id="status-text">остановлен</span>
 </header>
+
+<div class="ip-bar">
+  <span class="label">Внешний IP</span>
+  <span id="ip-value">определяется...</span>
+  <span id="ip-country"></span>
+  <span id="ip-org"></span>
+  <span id="ip-changed">⚑ IP сменился!</span>
+</div>
 
 <div class="big-speed">
   <div id="speed-value">—</div>
@@ -393,6 +431,43 @@ function logMarker() {
   markerNext = true;
   addLog('⚑ маркер будет добавлен при следующем сэмпле', 'mark');
 }
+
+let currentIP = null;
+let ipChangedTimer = null;
+
+async function fetchIP() {
+  try {
+    const res = await fetch('https://ipinfo.io/json', { cache: 'no-store' });
+    const data = await res.json();
+    const ip = data.ip;
+    const parts = [data.city, data.region, data.country].filter(Boolean);
+    const loc = parts.join(', ');
+    document.getElementById('ip-country').textContent = loc ? '· ' + loc : '';
+    document.getElementById('ip-org').textContent = data.org ? '· ' + data.org : '';
+
+    if (currentIP && currentIP !== ip) {
+      const el = document.getElementById('ip-value');
+      el.classList.remove('changed');
+      void el.offsetWidth;
+      el.classList.add('changed');
+      const badge = document.getElementById('ip-changed');
+      badge.style.display = 'block';
+      clearTimeout(ipChangedTimer);
+      ipChangedTimer = setTimeout(() => {
+        badge.style.display = 'none';
+        el.classList.remove('changed');
+      }, 8000);
+      addLog(`IP сменился: ${currentIP} → ${ip} (${data.country || '?'})`, 'mark');
+    }
+    currentIP = ip;
+    document.getElementById('ip-value').textContent = ip;
+  } catch(e) {
+    if (!currentIP) document.getElementById('ip-value').textContent = 'недоступно';
+  }
+}
+
+fetchIP();
+setInterval(fetchIP, 4000);
 </script>
 </body>
 </html>
