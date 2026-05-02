@@ -195,10 +195,11 @@
   <button id="btn-stop" onclick="stopTest()" class="danger" disabled>■ Стоп</button>
   <button onclick="resetStats()">↺ Сброс</button>
   <select id="chunk-size" title="Размер чанка">
-    <option value="2000000">2 МБ / чанк</option>
-    <option value="5000000" selected>5 МБ / чанк</option>
-    <option value="10000000">10 МБ / чанк</option>
-    <option value="25000000">25 МБ / чанк</option>
+    <option value="5000000">5 МБ (рваный)</option>
+    <option value="25000000">25 МБ</option>
+    <option value="100000000" selected>100 МБ (рекомендуется)</option>
+    <option value="500000000">500 МБ (плавный)</option>
+    <option value="2000000000">2 ГБ (∞ поток)</option>
   </select>
   <button onclick="logMarker()">⚑ Маркер</button>
 </div>
