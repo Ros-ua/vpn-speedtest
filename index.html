@@ -183,20 +183,18 @@ select option { background: var(--bg); }
         <button onclick="resetStats()">↺ Сброс</button>
 
         <select id="stream-count" title="Всего параллельных потоков (каждые 2 в отдельном воркере)">
-          <option value="4">4 потока</option>
-          <option value="8">8 потоков</option>
-          <option value="16" selected>16 потоков</option>
-          <option value="24">24 потока</option>
+          <option value="16">16 потоков</option>
           <option value="32">32 потока</option>
-          <option value="48">48 потоков</option>
-          <option value="64">64 потока</option>
+          <option value="64" selected>64 потока ★</option>
+          <option value="96">96 потоков</option>
+          <option value="128">128 потоков</option>
         </select>
 
-        <select id="chunk-size" title="Размер чанка — меньше = быстрее переоткрывает соединения">
-          <option value="10000000">10 МБ (быстрый цикл)</option>
-          <option value="50000000">50 МБ</option>
-          <option value="200000000" selected>200 МБ</option>
-          <option value="1000000000">1 ГБ (∞ поток)</option>
+        <select id="chunk-size" title="Размер чанка — меньше = чаще переоткрывает H2-стримы = больше нод">
+          <option value="5000000">5 МБ (макс. цикл)</option>
+          <option value="25000000" selected>25 МБ ★</option>
+          <option value="100000000">100 МБ</option>
+          <option value="500000000">500 МБ (∞ поток)</option>
         </select>
 
         <button id="btn-burst" onclick="burst()" class="warn" disabled title="Мгновенно открыть 64 доп. соединения на 8 секунд — прокачать все ноды load-balance">⚡ Бёрст</button>
@@ -212,7 +210,7 @@ select option { background: var(--bg); }
       <div class="log-header">Лог</div>
       <div id="log">
         <div class="entry" style="color:#2e4a44">// Старт → меняй группу в Clash → смотри IP и скорость</div>
-        <div class="entry" style="color:#2e4a44">// Каждый воркер = отдельный TCP-пул → load-balance реально раскидывает</div>
+        <div class="entry" style="color:#2e4a44">// H2 мультиплексирует потоки — используем разные origin-ы для раздельных TCP</div>
       </div>
     </div>
 
@@ -222,29 +220,58 @@ select option { background: var(--bg); }
 <script>
 // ─── Конфигурация ────────────────────────────────────────────────────────────
 const MAX_POINTS   = 300;   // точек на графике (~30 сек при 100мс тике)
-const WINDOW_MS    = 600;   // скользящее окно замера скорости
-const WARMUP_MS    = 1000;  // прогрев TCP
+const WINDOW_MS    = 500;   // скользящее окно замера скорости
+const WARMUP_MS    = 600;   // прогрев TCP
 const TICK_MS      = 100;   // частота обновления графика / скорости
 
 // Каждый воркер = 2 параллельных потока из своего connection pool
 const STREAMS_PER_WORKER = 2;
 
+// ─── ПОЧЕМУ H2 МЕШАЕТ И КАК ЭТО ОБХОДИМ ────────────────────────────────────
+// HTTP/2 мультиплексирует несколько fetch()-запросов через ОДНО TCP-соединение.
+// Clash load-balance работает на уровне TCP-соединений: один H2 = одна нода.
+// 
+// Решение: используем РАЗНЫЕ origin-ы. Каждый уникальный hostname = новое
+// TCP-соединение = новая нода в round-robin.
+// Воркеры чередуют endpoint-ы по своему wid, чтобы форсировать разные сессии.
+//
+// Дополнительно: мелкие чанки (25MB) → H2-стримы закрываются чаще → браузер
+// быстрее достигает лимита concurrent streams → открывает новые соединения.
+
+const ENDPOINTS = [
+  // Cloudflare — основной, поддерживает CORS
+  bytes => 'https://speed.cloudflare.com/__down?bytes=' + bytes,
+  // httpbin — другой origin, гарантирует отдельную H2-сессию → новая Clash-нода
+  bytes => 'https://httpbin.org/stream-bytes/' + bytes,
+  // httpbingo — ещё один вариант httpbin
+  bytes => 'https://httpbingo.org/stream-bytes/' + bytes,
+  // Снова Cloudflare (fallback если другие недоступны)
+  bytes => 'https://speed.cloudflare.com/__down?bytes=' + bytes,
+];
+
 // ─── Код воркера (инлайн, через Blob URL) ────────────────────────────────────
-// Ключевое: Web Worker имеет СОБСТВЕННЫЙ TCP connection pool, независимый от
-// главного потока и других воркеров. Это заставляет браузер открывать новые
-// TCP-соединения, которые Clash load-balance распределит по разным нодам.
 const WORKER_SRC = `
 let running = false;
 
-async function streamLoop(bytes, uid) {
+// Stagger: воркеры стартуют со сдвигом, потоки внутри тоже.
+// Размер чанка варьируется ±30% на каждой итерации — воркеры никогда
+// не заканчивают чанки одновременно → нет провалов скорости.
+function varyBytes(base, seed) {
+  const v = [0.70, 0.80, 0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15, 1.20, 1.30, 0.75];
+  return Math.floor(base * v[seed % v.length]);
+}
+
+async function streamLoop(baseBytes, uid, epBase, innerIdx) {
+  // Смещение потоков внутри воркера
+  if (innerIdx > 0) await new Promise(r => setTimeout(r, innerIdx * 300));
+  let iter = 0;
   while (running) {
     const ac = new AbortController();
+    const bytes = varyBytes(baseBytes, uid + iter++);
+    // Для Cloudflare — подставляем bytes в URL; для остальных берём epBase как есть
+    const base = epBase.includes('__down') ? 'https://speed.cloudflare.com/__down?bytes=' + bytes : epBase;
     try {
-      // Уникальный URL на каждый запрос — разные cache-записи, максимум новых соединений
-      const url =
-        'https://speed.cloudflare.com/__down?bytes=' + bytes +
-        '&uid=' + uid + '_' + Math.random().toString(36).slice(2) +
-        '&t=' + Date.now();
+      const url = base + '&r=' + uid + '_' + Math.random().toString(36).slice(2) + '&t=' + Date.now();
       const res = await fetch(url, { signal: ac.signal, cache: 'no-store' });
       const reader = res.body.getReader();
       while (running) {
@@ -255,16 +282,20 @@ async function streamLoop(bytes, uid) {
       if (!running) { try { reader.cancel(); } catch(_){} break; }
     } catch(e) {
       if (!running) break;
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 400));
     }
   }
 }
 
-self.onmessage = function({ data }) {
+self.onmessage = async function({ data }) {
   if (data.cmd === 'start') {
     running = true;
+    // Stagger между воркерами: каждый ждёт wid × 350мс перед стартом
+    // 8 воркеров: 0, 350, 700, 1050, 1400, 1750, 2100, 2450мс
+    // Чанки заканчиваются в разное время → нет синхронного провала
+    if (data.delay) await new Promise(r => setTimeout(r, data.delay));
     for (let i = 0; i < data.sperw; i++) {
-      streamLoop(data.bytes, data.wid * 1000 + i);
+      streamLoop(data.bytes, data.wid * 1000 + i, data.ep, i);
     }
   } else if (data.cmd === 'stop') {
     running = false;
@@ -380,10 +411,14 @@ function spawnWorkers(totalStreams, bytes, isExtra = false) {
   const list = [];
 
   for (let wid = 0; wid < nWorkers; wid++) {
-    // Последний воркер может взять меньше потоков
     const sperw = (wid === nWorkers - 1)
       ? totalStreams - wid * STREAMS_PER_WORKER
       : STREAMS_PER_WORKER;
+
+    // Каждый воркер получает endpoint из ротации по wid
+    // → разные origin-ы = разные TCP-соединения = разные ноды в Clash round-robin
+    const epFn = ENDPOINTS[wid % ENDPOINTS.length];
+    const epBase = epFn(bytes);
 
     const w = new Worker(blobUrl);
     w.onmessage = ({ data }) => {
@@ -392,7 +427,7 @@ function spawnWorkers(totalStreams, bytes, isExtra = false) {
         totalBytes += data.n;
       }
     };
-    w.postMessage({ cmd: 'start', bytes, wid: isExtra ? 1000 + wid : wid, sperw });
+    w.postMessage({ cmd: 'start', bytes, wid: isExtra ? 5000 + wid : wid, sperw, ep: epBase, delay: isExtra ? 0 : wid * 350 });
     list.push(w);
   }
 
@@ -447,8 +482,7 @@ function startTest() {
   document.getElementById('btn-burst').disabled = false;
   document.getElementById('status-dot').className = 'running';
 
-  addLog(`старт: ${workerCount} воркеров × ${STREAMS_PER_WORKER} потока = ${streamCount} TCP-соединений`, 'info');
-  addLog(`каждый воркер имеет свой connection pool → load-balance видит ${streamCount} независимых потоков`, 'info');
+  addLog(`старт: ${workerCount} воркеров × ${STREAMS_PER_WORKER} потока = ${streamCount} потоков | endpoints чередуются: CF / httpbin / httpbingo`, 'info');
   startTicker();
 }
 
@@ -483,12 +517,12 @@ function burst() {
   if (!running || burstActive) return;
   burstActive = true;
 
-  const bytes = Math.min(parseInt(document.getElementById('chunk-size').value), 50_000_000);
-  const res   = spawnWorkers(64, bytes, true);
+  const bytes = Math.min(parseInt(document.getElementById('chunk-size').value), 25_000_000);
+  const res   = spawnWorkers(128, bytes, true);
   burstW      = res.list;
 
   document.getElementById('status-dot').className = 'burst';
-  addLog(`⚡ БЁРСТ: +64 соединения на 8с — форсированный прогон всех нод load-balance`, 'mark');
+  addLog(`⚡ БЁРСТ: +128 соединений на 10с — форсированный прокон всех нод`, 'mark');
 
   setTimeout(() => {
     burstW.forEach(w => { w.postMessage({ cmd: 'stop' }); setTimeout(() => w.terminate(), 600); });
@@ -498,7 +532,7 @@ function burst() {
       document.getElementById('status-dot').className = 'running';
       addLog('⚡ бёрст завершён — возврат к штатному режиму');
     }
-  }, 8000);
+  }, 10000);
 }
 
 // ─── Сброс ───────────────────────────────────────────────────────────────────
