@@ -16,6 +16,7 @@
   --muted: #5a7a72;
   --danger: #ff5f5f;
   --warn: #ffb347;
+  --purple: #aa88ff;
   --grid: rgba(0,210,170,0.05);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -28,7 +29,8 @@ header h1 { font-size: 12px; color: var(--accent); letter-spacing: 0.2em; text-t
 #status-text { font-size: 11px; color: var(--muted); }
 #status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
 #status-dot.running { background: var(--accent); animation: pulse 1.5s infinite; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+#status-dot.burst { background: var(--warn); animation: pulse 0.4s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
 .ip-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 8px 14px; display: flex; align-items: center; gap: 18px; flex-shrink: 0; }
 .ip-field { display: flex; flex-direction: column; gap: 1px; }
@@ -36,7 +38,7 @@ header h1 { font-size: 12px; color: var(--accent); letter-spacing: 0.2em; text-t
 .ip-field .val { font-size: 12px; color: var(--text); }
 #ip-addr { font-size: 15px; font-weight: bold; color: var(--accent); letter-spacing: 0.05em; transition: color 0.3s; }
 #ip-addr.changed { color: var(--warn); animation: flaship 1.5s; }
-@keyframes flaship { 0%,100%{opacity:1} 30%{opacity:0.15} }
+@keyframes flaship { 0%,100%{opacity:1} 30%{opacity:0.1} }
 .ip-sep { width: 1px; height: 26px; background: var(--border); flex-shrink: 0; }
 #ip-status { font-size: 9px; color: var(--muted); margin-left: auto; }
 
@@ -64,16 +66,17 @@ header h1 { font-size: 12px; color: var(--accent); letter-spacing: 0.2em; text-t
   background: repeating-linear-gradient(0deg, var(--grid) 0px, var(--grid) 1px, transparent 1px, transparent 28px);
   pointer-events: none;
 }
-#speed-value { font-size: 72px; font-weight: bold; color: var(--accent); line-height: 1; transition: color 0.4s; position: relative; z-index: 1; }
+#speed-value { font-size: 72px; font-weight: bold; color: var(--accent); line-height: 1; transition: color 0.3s; position: relative; z-index: 1; }
 #speed-unit { font-size: 14px; color: var(--muted); margin-top: 4px; letter-spacing: 0.1em; position: relative; }
 #speed-label { font-size: 9px; color: var(--muted); margin-top: 5px; letter-spacing: 0.2em; text-transform: uppercase; position: relative; }
 
-.stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; flex-shrink: 0; }
+.stats { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; flex-shrink: 0; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 9px 12px; }
 .card-label { font-size: 9px; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 4px; }
 .card-value { font-size: 22px; font-weight: bold; color: var(--accent); line-height: 1; }
 .card-value.c2 { color: var(--accent2); }
 .card-value.cw { color: var(--warn); }
+.card-value.cp { color: var(--purple); }
 .card-unit { font-size: 10px; color: var(--muted); margin-top: 3px; }
 
 .controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex-shrink: 0; }
@@ -85,9 +88,13 @@ button {
 button:hover { background: var(--accent); color: var(--bg); }
 button.danger { border-color: var(--danger); color: var(--danger); }
 button.danger:hover { background: var(--danger); color: var(--bg); }
-button:disabled { opacity: 0.28; cursor: default; }
-button:disabled:hover { background: transparent; color: var(--accent); }
-select { background: var(--surface); border: 1px solid var(--border); color: var(--text); font-family: 'Courier New', monospace; font-size: 11px; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+button.warn { border-color: var(--warn); color: var(--warn); }
+button.warn:hover { background: var(--warn); color: var(--bg); }
+button:disabled { opacity: 0.28; cursor: default; pointer-events: none; }
+select {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  font-family: 'Courier New', monospace; font-size: 11px; padding: 6px 10px; border-radius: 4px; cursor: pointer;
+}
 select option { background: var(--bg); }
 
 .chart-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 12px; flex: 1; min-height: 0; position: relative; }
@@ -102,6 +109,7 @@ select option { background: var(--bg); }
 #log .entry { display: flex; gap: 10px; }
 #log .entry .ts { color: var(--accent); min-width: 72px; flex-shrink: 0; }
 #log .entry .mark { color: var(--warn); }
+#log .entry .info { color: var(--purple); }
 #log::-webkit-scrollbar { width: 3px; }
 #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 </style>
@@ -159,8 +167,13 @@ select option { background: var(--bg); }
         </div>
         <div class="card">
           <div class="card-label">Скачано</div>
-          <div class="card-value cw" id="samples-val">0</div>
+          <div class="card-value cw" id="downloaded-val">0</div>
           <div class="card-unit">МБ</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Воркеры / потоки</div>
+          <div class="card-value cp" id="wstreams-val">0 / 0</div>
+          <div class="card-unit">активных</div>
         </div>
       </div>
 
@@ -168,25 +181,38 @@ select option { background: var(--bg); }
         <button id="btn-start" onclick="startTest()">▶ Старт</button>
         <button id="btn-stop" onclick="stopTest()" class="danger" disabled>■ Стоп</button>
         <button onclick="resetStats()">↺ Сброс</button>
-        <select id="chunk-size">
-          <option value="5000000">5 МБ (рваный)</option>
-          <option value="25000000">25 МБ</option>
-          <option value="100000000" selected>100 МБ</option>
-          <option value="500000000">500 МБ (плавный)</option>
-          <option value="2000000000">2 ГБ (∞)</option>
+
+        <select id="stream-count" title="Всего параллельных потоков (каждые 2 в отдельном воркере)">
+          <option value="4">4 потока</option>
+          <option value="8">8 потоков</option>
+          <option value="16" selected>16 потоков</option>
+          <option value="24">24 потока</option>
+          <option value="32">32 потока</option>
+          <option value="48">48 потоков</option>
+          <option value="64">64 потока</option>
         </select>
+
+        <select id="chunk-size" title="Размер чанка — меньше = быстрее переоткрывает соединения">
+          <option value="10000000">10 МБ (быстрый цикл)</option>
+          <option value="50000000">50 МБ</option>
+          <option value="200000000" selected>200 МБ</option>
+          <option value="1000000000">1 ГБ (∞ поток)</option>
+        </select>
+
+        <button id="btn-burst" onclick="burst()" class="warn" disabled title="Мгновенно открыть 64 доп. соединения на 8 секунд — прокачать все ноды load-balance">⚡ Бёрст</button>
         <button onclick="logMarker()">⚑ Маркер</button>
       </div>
 
       <div class="chart-wrap">
-        <canvas id="speedChart" role="img" aria-label="График скорости скачивания во времени"></canvas>
+        <canvas id="speedChart" role="img" aria-label="График скорости"></canvas>
       </div>
     </div>
 
     <div class="right">
       <div class="log-header">Лог</div>
       <div id="log">
-        <div class="entry" style="color:#2e4a44">// Старт → меняй сервер VPN → смотри IP и скорость</div>
+        <div class="entry" style="color:#2e4a44">// Старт → меняй группу в Clash → смотри IP и скорость</div>
+        <div class="entry" style="color:#2e4a44">// Каждый воркер = отдельный TCP-пул → load-balance реально раскидывает</div>
       </div>
     </div>
 
@@ -194,36 +220,119 @@ select option { background: var(--bg); }
 </div>
 
 <script>
-const MAX_POINTS = 120;
-const STREAMS = 4;
-const WINDOW_MS = 1500;
-const WARMUP_MS = 2000;
-const TICK_MS = 200;
+// ─── Конфигурация ────────────────────────────────────────────────────────────
+const MAX_POINTS   = 300;   // точек на графике (~30 сек при 100мс тике)
+const WINDOW_MS    = 600;   // скользящее окно замера скорости
+const WARMUP_MS    = 1000;  // прогрев TCP
+const TICK_MS      = 100;   // частота обновления графика / скорости
 
+// Каждый воркер = 2 параллельных потока из своего connection pool
+const STREAMS_PER_WORKER = 2;
+
+// ─── Код воркера (инлайн, через Blob URL) ────────────────────────────────────
+// Ключевое: Web Worker имеет СОБСТВЕННЫЙ TCP connection pool, независимый от
+// главного потока и других воркеров. Это заставляет браузер открывать новые
+// TCP-соединения, которые Clash load-balance распределит по разным нодам.
+const WORKER_SRC = `
 let running = false;
-let controllers = [];
-let history = [], sampleCount = 0, maxSpeed = 0, markerNext = false;
-let bytesLog = []; // { t, b } для sliding window
-let tickTimer = null;
-let totalBytes = 0;
 
-const ctx = document.getElementById('speedChart').getContext('2d');
-const chart = new Chart(ctx, {
-  type: 'line',
-  data: { labels: [], datasets: [{ data: [], borderColor: '#00d2aa', backgroundColor: 'rgba(0,210,170,0.07)', borderWidth: 1.5, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 3 }] },
-  options: {
-    responsive: true, maintainAspectRatio: false, animation: { duration: 150 },
-    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.raw.toFixed(1) + ' Мбит/с' } } },
-    scales: {
-      x: { ticks: { color: '#5a7a72', font: { family: 'Courier New', size: 9 }, maxTicksLimit: 6, autoSkip: true }, grid: { color: 'rgba(0,210,170,0.05)' }, border: { color: 'rgba(0,210,170,0.12)' } },
-      y: { min: 0, ticks: { color: '#5a7a72', font: { family: 'Courier New', size: 9 }, callback: v => v + ' М' }, grid: { color: 'rgba(0,210,170,0.05)' }, border: { color: 'rgba(0,210,170,0.12)' } }
+async function streamLoop(bytes, uid) {
+  while (running) {
+    const ac = new AbortController();
+    try {
+      // Уникальный URL на каждый запрос — разные cache-записи, максимум новых соединений
+      const url =
+        'https://speed.cloudflare.com/__down?bytes=' + bytes +
+        '&uid=' + uid + '_' + Math.random().toString(36).slice(2) +
+        '&t=' + Date.now();
+      const res = await fetch(url, { signal: ac.signal, cache: 'no-store' });
+      const reader = res.body.getReader();
+      while (running) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) self.postMessage({ type: 'b', n: value.length });
+      }
+      if (!running) { try { reader.cancel(); } catch(_){} break; }
+    } catch(e) {
+      if (!running) break;
+      await new Promise(r => setTimeout(r, 500));
     }
   }
-});
+}
 
-function ts() { return new Date().toTimeString().slice(0,8); }
+self.onmessage = function({ data }) {
+  if (data.cmd === 'start') {
+    running = true;
+    for (let i = 0; i < data.sperw; i++) {
+      streamLoop(data.bytes, data.wid * 1000 + i);
+    }
+  } else if (data.cmd === 'stop') {
+    running = false;
+  }
+};
+`;
 
-function addLog(msg, cls='') {
+// ─── Состояние ───────────────────────────────────────────────────────────────
+let running     = false;
+let workers     = [];
+let burstW      = [];
+let bytesLog    = [];   // { t: performance.now(), b: bytes }
+let totalBytes  = 0;
+let history     = [];   // скользящий буфер скоростей для avg60s
+let maxSpeed    = 0;
+let markerNext  = false;
+let tickTimer   = null;
+let startTime   = 0;
+let workerCount = 0;
+let streamCount = 0;
+
+// ─── Chart.js ────────────────────────────────────────────────────────────────
+const chart = new Chart(
+  document.getElementById('speedChart').getContext('2d'),
+  {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        data: [],
+        borderColor: '#00d2aa',
+        backgroundColor: 'rgba(0,210,170,0.07)',
+        borderWidth: 1.5,
+        fill: true,
+        tension: 0.35,
+        pointRadius: 0,
+        pointHoverRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 60 },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => c.raw.toFixed(1) + ' Мбит/с' } }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#5a7a72', font: { family: 'Courier New', size: 9 }, maxTicksLimit: 8, autoSkip: true },
+          grid: { color: 'rgba(0,210,170,0.05)' },
+          border: { color: 'rgba(0,210,170,0.12)' }
+        },
+        y: {
+          min: 0,
+          ticks: { color: '#5a7a72', font: { family: 'Courier New', size: 9 }, callback: v => v + ' М' },
+          grid: { color: 'rgba(0,210,170,0.05)' },
+          border: { color: 'rgba(0,210,170,0.12)' }
+        }
+      }
+    }
+  }
+);
+
+// ─── Утилиты ─────────────────────────────────────────────────────────────────
+function ts() { return new Date().toTimeString().slice(0, 8); }
+
+function addLog(msg, cls = '') {
   const log = document.getElementById('log');
   const div = document.createElement('div');
   div.className = 'entry';
@@ -232,61 +341,76 @@ function addLog(msg, cls='') {
   log.scrollTop = log.scrollHeight;
 }
 
+// ─── Обновление дисплея ──────────────────────────────────────────────────────
 function updateDisplay(mbps) {
   const el = document.getElementById('speed-value');
   el.textContent = mbps.toFixed(1);
   el.style.color = mbps < 5 ? '#ff5f5f' : mbps < 20 ? '#ffb347' : '#00d2aa';
-  sampleCount++;
+
   if (mbps > maxSpeed) maxSpeed = mbps;
   history.push(mbps);
-  if (history.length > MAX_POINTS) history.shift();
-  const avg60 = history.slice(-60).reduce((a,b)=>a+b,0) / Math.min(history.length, 60);
-  document.getElementById('avg-val').textContent = avg60.toFixed(1);
-  document.getElementById('max-val').textContent = maxSpeed.toFixed(1);
-  document.getElementById('samples-val').textContent = (totalBytes / 1e6).toFixed(0);
+  // 60 сек × 10 сэмплов/сек = 600 точек
+  if (history.length > 600) history.shift();
+
+  const avg = history.reduce((a, b) => a + b, 0) / history.length;
+  document.getElementById('avg-val').textContent       = avg.toFixed(1);
+  document.getElementById('max-val').textContent       = maxSpeed.toFixed(1);
+  document.getElementById('downloaded-val').textContent = (totalBytes / 1e6).toFixed(0);
+
   chart.data.labels.push(ts());
   chart.data.datasets[0].data.push(parseFloat(mbps.toFixed(2)));
-  if (chart.data.labels.length > MAX_POINTS) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
-  if (markerNext) { addLog(`⚑ МАРКЕР | ${mbps.toFixed(1)} Мбит/с`, 'mark'); markerNext = false; }
+  if (chart.data.labels.length > MAX_POINTS) {
+    chart.data.labels.shift();
+    chart.data.datasets[0].data.shift();
+  }
+
+  if (markerNext) {
+    addLog(`⚑ МАРКЕР | ${mbps.toFixed(1)} Мбит/с`, 'mark');
+    markerNext = false;
+  }
+
   chart.update('none');
 }
 
-// Один бесконечный стрим — когда чанк кончается, сразу запускает новый
-async function streamWorker(id) {
-  const bytes = parseInt(document.getElementById('chunk-size').value);
-  while (running) {
-    const ac = new AbortController();
-    controllers[id] = ac;
-    try {
-      const url = `https://speed.cloudflare.com/__down?bytes=${bytes}&r=${Date.now()}_${id}`;
-      const res = await fetch(url, { signal: ac.signal, cache: 'no-store' });
-      const reader = res.body.getReader();
-      while (running) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        bytesLog.push({ t: performance.now(), b: value.length });
-        totalBytes += value.length;
+// ─── Запуск воркеров ─────────────────────────────────────────────────────────
+function spawnWorkers(totalStreams, bytes, isExtra = false) {
+  const blob = new Blob([WORKER_SRC], { type: 'application/javascript' });
+  const blobUrl = URL.createObjectURL(blob);
+  const nWorkers = Math.ceil(totalStreams / STREAMS_PER_WORKER);
+  const list = [];
+
+  for (let wid = 0; wid < nWorkers; wid++) {
+    // Последний воркер может взять меньше потоков
+    const sperw = (wid === nWorkers - 1)
+      ? totalStreams - wid * STREAMS_PER_WORKER
+      : STREAMS_PER_WORKER;
+
+    const w = new Worker(blobUrl);
+    w.onmessage = ({ data }) => {
+      if (data.type === 'b') {
+        bytesLog.push({ t: performance.now(), b: data.n });
+        totalBytes += data.n;
       }
-      if (!running) { reader.cancel(); break; }
-    } catch(e) {
-      if (!running) break;
-      await new Promise(r => setTimeout(r, 800));
-    }
+    };
+    w.postMessage({ cmd: 'start', bytes, wid: isExtra ? 1000 + wid : wid, sperw });
+    list.push(w);
   }
+
+  URL.revokeObjectURL(blobUrl);
+  return { list, nWorkers, totalStreams };
 }
 
-// Тикер — каждые TICK_MS считает скорость по sliding window
-function startTicker(startTime) {
+// ─── Тикер (100 мс) ──────────────────────────────────────────────────────────
+function startTicker() {
   tickTimer = setInterval(() => {
     if (!running) return;
-    const now = performance.now();
-    const warmup = now - startTime < WARMUP_MS;
+    const now     = performance.now();
+    const warmup  = now - startTime < WARMUP_MS;
+    const cutoff  = now - WINDOW_MS;
 
-    // убираем старые записи за пределами окна
-    const cutoff = now - WINDOW_MS;
     while (bytesLog.length && bytesLog[0].t < cutoff) bytesLog.shift();
 
-    if (warmup || bytesLog.length < 2) {
+    if (warmup || bytesLog.length < 3) {
       document.getElementById('speed-value').textContent = '…';
       document.getElementById('speed-value').style.color = '#5a7a72';
       document.getElementById('status-text').textContent = 'разгон TCP...';
@@ -294,68 +418,119 @@ function startTicker(startTime) {
     }
 
     document.getElementById('status-text').textContent = 'измерение...';
-    const totalBytes = bytesLog.reduce((s, e) => s + e.b, 0);
-    const windowSec = (now - bytesLog[0].t) / 1000;
-    const mbps = (totalBytes * 8) / (windowSec * 1e6);
+    const wb      = bytesLog.reduce((s, e) => s + e.b, 0);
+    const wSec    = (now - bytesLog[0].t) / 1000;
+    const mbps    = (wb * 8) / (wSec * 1e6);
     updateDisplay(mbps);
   }, TICK_MS);
 }
 
+// ─── Старт / стоп ────────────────────────────────────────────────────────────
 function startTest() {
   if (running) return;
-  running = true;
-  bytesLog = [];
+  running    = true;
+  bytesLog   = [];
   totalBytes = 0;
-  controllers = new Array(STREAMS);
+  startTime  = performance.now();
+
+  const totalStreams = parseInt(document.getElementById('stream-count').value);
+  const bytes       = parseInt(document.getElementById('chunk-size').value);
+  const res         = spawnWorkers(totalStreams, bytes);
+
+  workers     = res.list;
+  workerCount = res.nWorkers;
+  streamCount = totalStreams;
+  document.getElementById('wstreams-val').textContent = `${workerCount} / ${streamCount}`;
+
   document.getElementById('btn-start').disabled = true;
-  document.getElementById('btn-stop').disabled = false;
+  document.getElementById('btn-stop').disabled  = false;
+  document.getElementById('btn-burst').disabled = false;
   document.getElementById('status-dot').className = 'running';
-  document.getElementById('status-text').textContent = 'разгон TCP...';
-  addLog(`запуск ${STREAMS} параллельных потоков`);
-  const startTime = performance.now();
-  for (let i = 0; i < STREAMS; i++) streamWorker(i);
-  startTicker(startTime);
+
+  addLog(`старт: ${workerCount} воркеров × ${STREAMS_PER_WORKER} потока = ${streamCount} TCP-соединений`, 'info');
+  addLog(`каждый воркер имеет свой connection pool → load-balance видит ${streamCount} независимых потоков`, 'info');
+  startTicker();
 }
 
 function stopTest() {
   running = false;
   clearInterval(tickTimer);
-  controllers.forEach(ac => { try { ac.abort(); } catch(e){} });
-  controllers = [];
+  [...workers, ...burstW].forEach(w => {
+    w.postMessage({ cmd: 'stop' });
+    setTimeout(() => w.terminate(), 600);
+  });
+  workers = []; burstW = [];
   bytesLog = [];
-  document.getElementById('btn-start').disabled = false;
-  document.getElementById('btn-stop').disabled = true;
+  workerCount = 0; streamCount = 0;
+
+  document.getElementById('btn-start').disabled   = false;
+  document.getElementById('btn-stop').disabled    = true;
+  document.getElementById('btn-burst').disabled   = true;
   document.getElementById('status-dot').className = '';
-  document.getElementById('status-text').textContent = 'остановлен';
-  document.getElementById('speed-value').textContent = '—';
-  document.getElementById('speed-value').style.color = '#00d2aa';
+  document.getElementById('status-text').textContent  = 'остановлен';
+  document.getElementById('speed-value').textContent  = '—';
+  document.getElementById('speed-value').style.color  = '#00d2aa';
+  document.getElementById('wstreams-val').textContent = '0 / 0';
   addLog('тест остановлен');
 }
 
+// ─── Бёрст ───────────────────────────────────────────────────────────────────
+// Мгновенно открывает 64 дополнительных соединения на 8 секунд.
+// Цель: за короткое время прокрутить весь round-robin списка нод,
+// чтобы все ноды оказались под нагрузкой одновременно.
+let burstActive = false;
+function burst() {
+  if (!running || burstActive) return;
+  burstActive = true;
+
+  const bytes = Math.min(parseInt(document.getElementById('chunk-size').value), 50_000_000);
+  const res   = spawnWorkers(64, bytes, true);
+  burstW      = res.list;
+
+  document.getElementById('status-dot').className = 'burst';
+  addLog(`⚡ БЁРСТ: +64 соединения на 8с — форсированный прогон всех нод load-balance`, 'mark');
+
+  setTimeout(() => {
+    burstW.forEach(w => { w.postMessage({ cmd: 'stop' }); setTimeout(() => w.terminate(), 600); });
+    burstW = [];
+    burstActive = false;
+    if (running) {
+      document.getElementById('status-dot').className = 'running';
+      addLog('⚡ бёрст завершён — возврат к штатному режиму');
+    }
+  }, 8000);
+}
+
+// ─── Сброс ───────────────────────────────────────────────────────────────────
 function resetStats() {
-  history = []; sampleCount = 0; maxSpeed = 0; totalBytes = 0;
-  document.getElementById('avg-val').textContent = '—';
-  document.getElementById('max-val').textContent = '—';
-  document.getElementById('samples-val').textContent = '0';
+  history = []; maxSpeed = 0; totalBytes = 0;
+  document.getElementById('avg-val').textContent        = '—';
+  document.getElementById('max-val').textContent        = '—';
+  document.getElementById('downloaded-val').textContent = '0';
   chart.data.labels = []; chart.data.datasets[0].data = [];
   chart.update();
   document.getElementById('log').innerHTML = '';
   addLog('статистика сброшена');
 }
 
-function logMarker() { markerNext = true; addLog('⚑ маркер при следующем сэмпле', 'mark'); }
+function logMarker() {
+  markerNext = true;
+  addLog('⚑ маркер будет поставлен при следующем сэмпле', 'mark');
+}
 
-let currentIP = null;
+// ─── IP detection (3 сек polling, 4 провайдера с fallback) ──────────────────
+let currentIP    = null;
+let providerIdx  = 0;
 
 const IP_PROVIDERS = [
   async () => {
     const d = await fetch('https://ipwho.is/', { cache: 'no-store' }).then(r => r.json());
-    if (!d.success && d.success !== undefined) throw new Error('failed');
+    if (d.success === false) throw 0;
     return { ip: d.ip, country: d.country, flag: d.flag?.emoji || '', org: d.connection?.org || d.connection?.isp || '', city: d.city || '' };
   },
   async () => {
     const d = await fetch('https://ipapi.co/json/', { cache: 'no-store' }).then(r => r.json());
-    if (d.error) throw new Error(d.reason);
+    if (d.error) throw 0;
     return { ip: d.ip, country: d.country_name, flag: d.country_flag_emoji || '', org: d.org || '', city: d.city || '' };
   },
   async () => {
@@ -364,43 +539,41 @@ const IP_PROVIDERS = [
   },
   async () => {
     const d = await fetch('https://ip-api.com/json/', { cache: 'no-store' }).then(r => r.json());
-    if (d.status === 'fail') throw new Error('failed');
+    if (d.status === 'fail') throw 0;
     return { ip: d.query, country: d.country, flag: '', org: d.isp || d.org || '', city: d.city || '' };
   },
 ];
 
-let providerIndex = 0;
-
 async function fetchIP() {
-  const total = IP_PROVIDERS.length;
-  for (let attempt = 0; attempt < total; attempt++) {
-    const idx = (providerIndex + attempt) % total;
+  for (let i = 0; i < IP_PROVIDERS.length; i++) {
+    const idx = (providerIdx + i) % IP_PROVIDERS.length;
     try {
       const d = await IP_PROVIDERS[idx]();
-      providerIndex = idx; // запомним работающий провайдер
-      const newIP = d.ip;
-      if (currentIP && currentIP !== newIP) {
-        addLog(`⚑ IP: ${currentIP} → ${newIP} (${d.country}, ${d.org})`, 'mark');
+      providerIdx = idx;
+
+      if (currentIP && currentIP !== d.ip) {
+        addLog(`⚑ IP изменился: ${currentIP} → ${d.ip} (${d.country}, ${(d.org || '').replace(/^AS\d+\s*/, '')})`, 'mark');
         const el = document.getElementById('ip-addr');
-        el.classList.remove('changed'); void el.offsetWidth; el.classList.add('changed');
+        el.classList.remove('changed');
+        void el.offsetWidth;
+        el.classList.add('changed');
         setTimeout(() => el.classList.remove('changed'), 2500);
       }
-      currentIP = newIP;
-      document.getElementById('ip-addr').textContent = newIP;
+
+      currentIP = d.ip;
+      document.getElementById('ip-addr').textContent    = d.ip;
       document.getElementById('ip-country').textContent = (d.flag ? d.flag + ' ' : '') + (d.country || '—');
-      document.getElementById('ip-org').textContent = (d.org || '—').replace(/^AS\d+\s*/, '');
-      document.getElementById('ip-city').textContent = d.city || '—';
-      document.getElementById('ip-status').textContent = 'обновлено ' + ts();
+      document.getElementById('ip-org').textContent     = (d.org || '—').replace(/^AS\d+\s*/, '');
+      document.getElementById('ip-city').textContent    = d.city || '—';
+      document.getElementById('ip-status').textContent  = 'обновлено ' + ts();
       return;
-    } catch(e) {
-      // этот провайдер не сработал, пробуем следующий
-    }
+    } catch (_) {}
   }
-  // все упали
   document.getElementById('ip-status').textContent = 'ошибка всех IP API';
 }
+
 fetchIP();
-setInterval(fetchIP, 5000);
+setInterval(fetchIP, 3000);  // 3с вместо 5с — быстрее замечаем смену IP при переключении группы
 </script>
 </body>
 </html>
