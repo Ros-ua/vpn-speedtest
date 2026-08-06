@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VPN Speed Monitor</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="chart.umd.js"></script>
 <style>
 :root {
   --bg: #0a0e12;
@@ -26,6 +26,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 
 header { display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--border); padding-bottom: 10px; flex-shrink: 0; }
 header h1 { font-size: 12px; color: var(--accent); letter-spacing: 0.2em; text-transform: uppercase; font-weight: normal; }
+#ver { font-size: 9px; color: var(--muted); letter-spacing: 0.1em; }
 #status-text { font-size: 11px; color: var(--muted); }
 #status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
 #status-dot.running { background: var(--accent); animation: pulse 1.5s infinite; }
@@ -46,7 +47,7 @@ header h1 { font-size: 12px; color: var(--accent); letter-spacing: 0.2em; text-t
 
 @media (max-width: 820px) {
   .main { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
-  .right { max-height: 130px; }
+  .right { max-height: 220px; }
   #speed-value { font-size: 52px !important; }
   .big-speed { padding: 10px 0 8px !important; }
   header h1 { font-size: 11px; }
@@ -96,11 +97,27 @@ select {
   font-family: 'Courier New', monospace; font-size: 11px; padding: 6px 10px; border-radius: 4px; cursor: pointer;
 }
 select option { background: var(--bg); }
+.chk { font-size: 10px; color: var(--muted); display: flex; gap: 4px; align-items: center; cursor: pointer; }
+.chk input { accent-color: var(--accent); }
 
 .chart-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 12px; flex: 1; min-height: 0; position: relative; }
 
-.right { display: flex; flex-direction: column; min-height: 0; }
-.log-header { font-size: 9px; color: var(--muted); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 6px; flex-shrink: 0; }
+.right { display: flex; flex-direction: column; min-height: 0; gap: 6px; }
+.log-header { font-size: 9px; color: var(--muted); letter-spacing: 0.2em; text-transform: uppercase; flex-shrink: 0; }
+#segs {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
+  overflow-y: auto; flex-shrink: 0; max-height: 42%; min-height: 54px;
+}
+.seg-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 10px; border-bottom: 1px solid var(--grid); font-size: 11px; }
+.seg-row:last-child { border-bottom: none; }
+.seg-row.cur { border-left: 2px solid var(--accent); background: rgba(0,210,170,0.05); }
+.seg-who { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg-cause { color: var(--muted); font-size: 9px; }
+.seg-nums { text-align: right; white-space: nowrap; flex-shrink: 0; }
+.seg-avg { color: var(--accent); font-weight: bold; font-size: 13px; }
+.seg-sub { color: var(--muted); font-size: 9px; }
+#segs::-webkit-scrollbar, #log::-webkit-scrollbar { width: 3px; }
+#segs::-webkit-scrollbar-thumb, #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 #log {
   background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
   padding: 10px 14px; font-size: 11px; flex: 1; overflow-y: auto;
@@ -110,8 +127,7 @@ select option { background: var(--bg); }
 #log .entry .ts { color: var(--accent); min-width: 72px; flex-shrink: 0; }
 #log .entry .mark { color: var(--warn); }
 #log .entry .info { color: var(--purple); }
-#log::-webkit-scrollbar { width: 3px; }
-#log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+#log .entry .dim { color: #2e4a44; }
 </style>
 </head>
 <body>
@@ -119,6 +135,7 @@ select option { background: var(--bg); }
 
   <header>
     <h1><span id="status-dot"></span>VPN Speed Monitor</h1>
+    <span id="ver">v2 · 06.08</span>
     <span id="status-text">остановлен</span>
   </header>
 
@@ -182,7 +199,7 @@ select option { background: var(--bg); }
         <button id="btn-stop" onclick="stopTest()" class="danger" disabled>■ Стоп</button>
         <button onclick="resetStats()">↺ Сброс</button>
 
-        <select id="stream-count" title="Всего параллельных потоков (каждые 2 в отдельном воркере)">
+        <select id="stream-count" title="Параллельные потоки скачивания (распределяются по 6 доменам-источникам)">
           <option value="16">16 потоков</option>
           <option value="32">32 потока</option>
           <option value="64" selected>64 потока ★</option>
@@ -190,15 +207,15 @@ select option { background: var(--bg); }
           <option value="128">128 потоков</option>
         </select>
 
-        <select id="chunk-size" title="Размер чанка — меньше = чаще переоткрывает H2-стримы = больше нод">
-          <option value="5000000">5 МБ (макс. цикл)</option>
+        <select id="chunk-size" title="Размер куска для Cloudflare (CDN-файлы фиксированные, ~32 МБ)">
+          <option value="5000000">5 МБ</option>
           <option value="25000000" selected>25 МБ ★</option>
           <option value="100000000">100 МБ</option>
-          <option value="500000000">500 МБ (∞ поток)</option>
         </select>
 
-        <button id="btn-burst" onclick="burst()" class="warn" disabled title="Мгновенно открыть 64 доп. соединения на 8 секунд — прокачать все ноды load-balance">⚡ Бёрст</button>
-        <button onclick="logMarker()">⚑ Маркер</button>
+        <button id="btn-burst" onclick="burst()" class="warn" disabled title="Добавить 64 потока на 8 секунд — кратковременный максимум нагрузки">⚡ Бёрст</button>
+        <button id="btn-marker" onclick="manualSegment()" disabled title="Нажми после переключения протокола на том же сервере (IP не меняется — сам я это не увижу). Начнёт новую строку в таблице замеров.">⚑ Новый замер</button>
+        <label class="chk" title="При смене IP убить старые соединения и открыть новые — чтобы замер был честно про новую ноду"><input type="checkbox" id="auto-restart" checked>рестарт при смене IP</label>
       </div>
 
       <div class="chart-wrap">
@@ -207,11 +224,10 @@ select option { background: var(--bg); }
     </div>
 
     <div class="right">
+      <div class="log-header">Замеры — переключай ноды в Clash, таблица соберётся сама</div>
+      <div id="segs"></div>
       <div class="log-header">Лог</div>
-      <div id="log">
-        <div class="entry" style="color:#2e4a44">// Старт → меняй группу в Clash → смотри IP и скорость</div>
-        <div class="entry" style="color:#2e4a44">// H2 мультиплексирует потоки — используем разные origin-ы для раздельных TCP</div>
-      </div>
+      <div id="log"></div>
     </div>
 
   </div>
@@ -220,79 +236,89 @@ select option { background: var(--bg); }
 <script>
 // ─── Конфигурация ────────────────────────────────────────────────────────────
 const MAX_POINTS   = 300;   // точек на графике (~30 сек при 100мс тике)
-const WINDOW_MS    = 500;   // скользящее окно замера скорости
-const WARMUP_MS    = 600;   // прогрев TCP
+const WINDOW_MS    = 1500;  // скользящее окно замера скорости: VPN отдаёт
+                            // трафик пачками, короткое окно дико пилит цифру
 const TICK_MS      = 100;   // частота обновления графика / скорости
+const SEG_GRACE_MS = 5000;  // первые секунды замера не идут в среднюю (разгон)
 
-// Каждый воркер = 2 параллельных потока из своего connection pool
+// Каждый воркер = 2 параллельных потока
 const STREAMS_PER_WORKER = 2;
 
-// ─── ПОЧЕМУ H2 МЕШАЕТ И КАК ЭТО ОБХОДИМ ────────────────────────────────────
-// HTTP/2 мультиплексирует несколько fetch()-запросов через ОДНО TCP-соединение.
-// Clash load-balance работает на уровне TCP-соединений: один H2 = одна нода.
-// 
-// Решение: используем РАЗНЫЕ origin-ы. Каждый уникальный hostname = новое
-// TCP-соединение = новая нода в round-robin.
-// Воркеры чередуют endpoint-ы по своему wid, чтобы форсировать разные сессии.
-//
-// Дополнительно: мелкие чанки (25MB) → H2-стримы закрываются чаще → браузер
-// быстрее достигает лимита concurrent streams → открывает новые соединения.
-
+// ─── Как это грузит канал ────────────────────────────────────────────────────
+// HTTP/2 склеивает ВСЕ запросы к одному домену в одно TCP-соединение,
+// сколько бы потоков мы ни открыли. Отдельное соединение даёт только
+// отдельный ДОМЕН. Поэтому источников шесть (все проверены 06.08.2026,
+// отдают большие файлы и разрешают CORS):
+//   - speed.cloudflare.com — отдаёт ровно столько байт, сколько попросим
+//   - 4 зеркала jsDelivr + unpkg — большой файл ~32 МБ
+// 6 доменов = до 6 параллельных TCP-соединений через выбранную ноду Clash.
+// Этого хватает, чтобы забить канал даже при большом пинге до ноды.
+const BIGFILE = '/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm';
 const ENDPOINTS = [
-  // Cloudflare — основной, поддерживает CORS
-  bytes => 'https://speed.cloudflare.com/__down?bytes=' + bytes,
-  // httpbin — другой origin, гарантирует отдельную H2-сессию → новая Clash-нода
-  bytes => 'https://httpbin.org/stream-bytes/' + bytes,
-  // httpbingo — ещё один вариант httpbin
-  bytes => 'https://httpbingo.org/stream-bytes/' + bytes,
-  // Снова Cloudflare (fallback если другие недоступны)
-  bytes => 'https://speed.cloudflare.com/__down?bytes=' + bytes,
+  { cf: true },
+  { base: 'https://fastly.jsdelivr.net' + BIGFILE },
+  { base: 'https://cdn.jsdelivr.net' + BIGFILE },
+  { base: 'https://gcore.jsdelivr.net' + BIGFILE },
+  { base: 'https://testingcf.jsdelivr.net' + BIGFILE },
+  { base: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm' },
 ];
 
 // ─── Код воркера (инлайн, через Blob URL) ────────────────────────────────────
 const WORKER_SRC = `
 let running = false;
 
-// Stagger: воркеры стартуют со сдвигом, потоки внутри тоже.
-// Размер чанка варьируется ±30% на каждой итерации — воркеры никогда
-// не заканчивают чанки одновременно → нет провалов скорости.
+// размер куска для Cloudflare варьируется ±30%, чтобы куски у разных
+// потоков не заканчивались одновременно (нет синхронных провалов)
 function varyBytes(base, seed) {
   const v = [0.70, 0.80, 0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15, 1.20, 1.30, 0.75];
   return Math.floor(base * v[seed % v.length]);
 }
 
-async function streamLoop(baseBytes, uid, epBase, innerIdx) {
-  // Смещение потоков внутри воркера
-  if (innerIdx > 0) await new Promise(r => setTimeout(r, innerIdx * 300));
+async function streamLoop(baseBytes, uid, ep, innerIdx) {
+  if (innerIdx > 0) await new Promise(r => setTimeout(r, innerIdx * 250));
   let iter = 0;
   while (running) {
+    let url = ep.cf
+      ? 'https://speed.cloudflare.com/__down?bytes=' + varyBytes(baseBytes, uid + iter)
+      : ep.base;
+    // кэш-пробивка: параметр присоединяем правильно — через ? или &
+    url += (url.indexOf('?') >= 0 ? '&' : '?') + 'r=' + uid + '_' + Math.random().toString(36).slice(2);
+    iter++;
+    // сторож: VPN может умереть молча, без ошибки сокета — тогда read()
+    // повиснет навсегда. 15с без единого байта → рвём и заходим заново
     const ac = new AbortController();
-    const bytes = varyBytes(baseBytes, uid + iter++);
-    // Для Cloudflare — подставляем bytes в URL; для остальных берём epBase как есть
-    const base = epBase.includes('__down') ? 'https://speed.cloudflare.com/__down?bytes=' + bytes : epBase;
+    let lastData = Date.now();
+    const dog = setInterval(() => { if (Date.now() - lastData > 15000) ac.abort(); }, 3000);
     try {
-      const url = base + '&r=' + uid + '_' + Math.random().toString(36).slice(2) + '&t=' + Date.now();
-      const res = await fetch(url, { signal: ac.signal, cache: 'no-store' });
+      const res = await fetch(url, { cache: 'no-store', signal: ac.signal });
+      if (!res.ok || !res.body) {
+        // 4xx/5xx: тело ошибки НЕ считаем скачанным, ждём и пробуем снова
+        try { if (res.body) await res.body.cancel(); } catch (_) {}
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
       const reader = res.body.getReader();
       while (running) {
         const { done, value } = await reader.read();
         if (done) break;
-        if (value) self.postMessage({ type: 'b', n: value.length });
+        lastData = Date.now();
+        // время ставим ЗДЕСЬ, в воркере: воркеры браузер не тормозит,
+        // даже если вкладка в фоне — метки остаются честными
+        if (value) self.postMessage({ type: 'b', n: value.length, t: Date.now() });
       }
-      if (!running) { try { reader.cancel(); } catch(_){} break; }
-    } catch(e) {
+      if (!running) { try { reader.cancel(); } catch (_) {} break; }
+    } catch (e) {
       if (!running) break;
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 800));
+    } finally {
+      clearInterval(dog);
     }
   }
 }
 
-self.onmessage = async function({ data }) {
+self.onmessage = async function ({ data }) {
   if (data.cmd === 'start') {
     running = true;
-    // Stagger между воркерами: каждый ждёт wid × 350мс перед стартом
-    // 8 воркеров: 0, 350, 700, 1050, 1400, 1750, 2100, 2450мс
-    // Чанки заканчиваются в разное время → нет синхронного провала
     if (data.delay) await new Promise(r => setTimeout(r, data.delay));
     for (let i = 0; i < data.sperw; i++) {
       streamLoop(data.bytes, data.wid * 1000 + i, data.ep, i);
@@ -304,20 +330,63 @@ self.onmessage = async function({ data }) {
 `;
 
 // ─── Состояние ───────────────────────────────────────────────────────────────
-let running     = false;
-let workers     = [];
-let burstW      = [];
-let bytesLog    = [];   // { t: performance.now(), b: bytes }
-let totalBytes  = 0;
-let history     = [];   // скользящий буфер скоростей для avg60s
-let maxSpeed    = 0;
-let markerNext  = false;
-let tickTimer   = null;
-let startTime   = 0;
-let workerCount = 0;
-let streamCount = 0;
+let running      = false;
+let workers      = [];
+let burstW       = [];
+let burstTimer   = null;
+let burstActive  = false;
+let bytesLog     = [];   // { t, b } — t в шкале performance.now()
+let totalBytes   = 0;
+let lastTotal    = 0;    // для посегментного учёта
+let lastTickT    = 0;    // реальное время прошлого тика (тики могут тормозиться)
+let avgLog       = [];   // { t, b } — байты по тикам, окно 60 секунд
+let maxSpeed     = 0;
+// пересчёт Date.now() воркера в шкалу performance.now() главного потока
+const dateOffset = Date.now() - performance.now();
+let mTicks       = 0;    // счётчик тиков метронома
+let warmupUntil  = 0;    // до этого момента показываем «разгон»
+let stallSince   = 0;    // с какого момента нет трафика (детектор обрыва)
+let workerCount  = 0;
+let streamCount  = 0;
+let totalSamples = 0;    // всего точек ушло на график (для меток сегментов)
+let chartMarks   = [];   // { sample, label } — вертикальные линии на графике
+
+// сегменты замера: одна строка таблицы = одна нода/протокол
+let segments   = [];
+let curSeg     = null;
+let segCounter = 0;
+
+// IP
+let currentIP   = null;
+let lastIpInfo  = null;
+let providerIdx = 0;
+let ipBusy      = false;
 
 // ─── Chart.js ────────────────────────────────────────────────────────────────
+// вертикальные пунктирные линии в местах начала замеров
+const segLinePlugin = {
+  id: 'segLines',
+  afterDatasetsDraw(c) {
+    const xs = c.scales.x, ctx2 = c.ctx, n = c.data.labels.length;
+    for (const m of chartMarks) {
+      const idx = m.sample - (totalSamples - n);
+      if (idx < 0 || idx >= n) continue;
+      const x = xs.getPixelForValue(idx);
+      ctx2.save();
+      ctx2.strokeStyle = 'rgba(255,179,71,0.6)';
+      ctx2.setLineDash([4, 4]);
+      ctx2.beginPath();
+      ctx2.moveTo(x, c.chartArea.top);
+      ctx2.lineTo(x, c.chartArea.bottom);
+      ctx2.stroke();
+      ctx2.fillStyle = '#ffb347';
+      ctx2.font = '9px Courier New';
+      ctx2.fillText(m.label, x + 3, c.chartArea.top + 10);
+      ctx2.restore();
+    }
+  }
+};
+
 const chart = new Chart(
   document.getElementById('speedChart').getContext('2d'),
   {
@@ -356,37 +425,158 @@ const chart = new Chart(
           border: { color: 'rgba(0,210,170,0.12)' }
         }
       }
-    }
+    },
+    plugins: [segLinePlugin]
   }
 );
 
 // ─── Утилиты ─────────────────────────────────────────────────────────────────
 function ts() { return new Date().toTimeString().slice(0, 8); }
+function el(id) { return document.getElementById(id); }
 
+// лог собираем через textContent — данные из внешних API не должны
+// попадать в innerHTML (иначе чужая строка может сломать/заразить страницу)
 function addLog(msg, cls = '') {
-  const log = document.getElementById('log');
+  const log = el('log');
   const div = document.createElement('div');
   div.className = 'entry';
-  div.innerHTML = `<span class="ts">${ts()}</span><span class="${cls}">${msg}</span>`;
+  const t = document.createElement('span');
+  t.className = 'ts';
+  t.textContent = ts();
+  const m = document.createElement('span');
+  if (cls) m.className = cls;
+  m.textContent = msg;
+  div.appendChild(t);
+  div.appendChild(m);
   log.appendChild(div);
+  while (log.children.length > 200) log.removeChild(log.firstChild);
   log.scrollTop = log.scrollHeight;
 }
 
+function flagFromCode(cc) {
+  if (!cc || cc.length !== 2 || !/^[A-Za-z]+$/.test(cc)) return '';
+  const A = 0x1F1E6;
+  cc = cc.toUpperCase();
+  return String.fromCodePoint(A + cc.charCodeAt(0) - 65, A + cc.charCodeAt(1) - 65);
+}
+
+// ─── Сегменты замера ─────────────────────────────────────────────────────────
+function segAvg(s) {
+  if (s.ms < 2000) return null;
+  return (s.bytes * 8) / (s.ms / 1000) / 1e6;
+}
+
+function renderSegs() {
+  const box = el('segs');
+  box.textContent = '';
+  const finished = segments.filter(s => s !== curSeg);
+  finished.sort((a, b) => (segAvg(b) || 0) - (segAvg(a) || 0));
+  const list = (curSeg ? [curSeg] : []).concat(finished);
+  if (!list.length) {
+    const d = document.createElement('div');
+    d.className = 'seg-row';
+    d.textContent = 'нажми Старт — здесь соберётся рейтинг нод';
+    box.appendChild(d);
+    return;
+  }
+  for (const s of list) {
+    const row = document.createElement('div');
+    row.className = 'seg-row' + (s === curSeg ? ' cur' : '');
+    const left = document.createElement('div');
+    const who = document.createElement('div');
+    who.className = 'seg-who';
+    who.textContent = `№${s.n} ${s.flag || ''} ${s.country || '—'} · ${s.ip || '—'}`;
+    const cause = document.createElement('div');
+    cause.className = 'seg-cause';
+    cause.textContent = `${s.wall} · ${s.cause}` + (s.org ? ` · ${s.org}` : '');
+    left.appendChild(who);
+    left.appendChild(cause);
+    const right = document.createElement('div');
+    right.className = 'seg-nums';
+    const avg = segAvg(s);
+    const a = document.createElement('div');
+    a.className = 'seg-avg';
+    a.textContent = avg === null ? '…' : avg.toFixed(1) + ' Мбит/с';
+    const sub = document.createElement('div');
+    sub.className = 'seg-sub';
+    sub.textContent = `макс ${s.max.toFixed(0)} · ${Math.round(s.ms / 1000)}с`;
+    right.appendChild(a);
+    right.appendChild(sub);
+    row.appendChild(left);
+    row.appendChild(right);
+    box.appendChild(row);
+  }
+}
+
+// Новый сегмент. Если текущему меньше 12 секунд — не плодим дубли
+// (обрыв и подтверждение смены IP при одном переключении приходят
+// друг за другом), а просто дописываем в него свежие данные об IP.
+function maybeNewSegment(cause, ipInfo, force) {
+  const now = performance.now();
+  if (!force && curSeg && now - curSeg.startT < 12000) {
+    if (ipInfo) {
+      curSeg.ip = ipInfo.ip;
+      curSeg.flag = ipInfo.flag;
+      curSeg.country = ipInfo.country;
+      curSeg.org = ipInfo.org;
+      renderSegs();
+    }
+    return { seg: curSeg, created: false };
+  }
+  segCounter++;
+  const info = ipInfo || lastIpInfo || {};
+  curSeg = {
+    n: segCounter, startT: now, wall: ts(), cause,
+    bytes: 0, ms: 0, max: 0,
+    ip: info.ip || '—', flag: info.flag || '', country: info.country || '', org: info.org || '',
+  };
+  segments.unshift(curSeg);
+  if (segments.length > 40) segments.pop();
+  chartMarks.push({ sample: totalSamples, label: '№' + segCounter });
+  chartMarks = chartMarks.filter(m => m.sample > totalSamples - MAX_POINTS - 5);
+  addLog(`⚑ замер №${segCounter} — ${cause}`, 'mark');
+  const seg = curSeg;
+  setTimeout(() => {
+    if (running && curSeg === seg) {
+      const avg = segAvg(seg);
+      if (avg !== null) addLog(`замер №${seg.n} ${seg.flag} ${seg.country}: средняя ${avg.toFixed(1)} Мбит/с`, 'info');
+    }
+  }, 12000);
+  renderSegs();
+  return { seg, created: true };
+}
+
+function manualSegment() {
+  if (!running) return;   // без запущенного теста замер начинать не с чего
+  const r = maybeNewSegment('ручной маркер (смена протокола?)', lastIpInfo, true);
+  if (el('auto-restart').checked && r.created) restartStreams('чистый замер после маркера');
+}
+
 // ─── Обновление дисплея ──────────────────────────────────────────────────────
-function updateDisplay(mbps) {
-  const el = document.getElementById('speed-value');
-  el.textContent = mbps.toFixed(1);
-  el.style.color = mbps < 5 ? '#ff5f5f' : mbps < 20 ? '#ffb347' : '#00d2aa';
+function updateDisplay(mbps, winFull) {
+  const sv = el('speed-value');
+  sv.textContent = mbps.toFixed(1);
+  sv.style.color = mbps < 5 ? '#ff5f5f' : mbps < 20 ? '#ffb347' : '#00d2aa';
 
-  if (mbps > maxSpeed) maxSpeed = mbps;
-  history.push(mbps);
-  // 60 сек × 10 сэмплов/сек = 600 точек
-  if (history.length > 600) history.shift();
+  // максимум фиксируем только по заполненному окну — иначе первая пачка
+  // байт после паузы делится на крошечное время и рисует фальшивый рекорд
+  if (winFull && mbps > maxSpeed) maxSpeed = mbps;
 
-  const avg = history.reduce((a, b) => a + b, 0) / history.length;
-  document.getElementById('avg-val').textContent       = avg.toFixed(1);
-  document.getElementById('max-val').textContent       = maxSpeed.toFixed(1);
-  document.getElementById('downloaded-val').textContent = (totalBytes / 1e6).toFixed(0);
+  const nowT  = performance.now();
+  const delta = totalBytes - lastTotal;
+  lastTotal = totalBytes;
+
+  // средняя за 60с считается из байтов по реальным часам —
+  // ей не важно, как часто приходят тики
+  avgLog.push({ t: nowT, b: delta });
+  while (avgLog.length && avgLog[0].t < nowT - 60000) avgLog.shift();
+  const spanA = avgLog.length > 1 ? nowT - avgLog[0].t : 0;
+  const avg = spanA > 1000
+    ? (avgLog.reduce((s, e) => s + e.b, 0) * 8) / (spanA / 1000 * 1e6)
+    : mbps;
+  el('avg-val').textContent        = avg.toFixed(1);
+  el('max-val').textContent        = maxSpeed.toFixed(1);
+  el('downloaded-val').textContent = (totalBytes / 1e6).toFixed(0);
 
   chart.data.labels.push(ts());
   chart.data.datasets[0].data.push(parseFloat(mbps.toFixed(2)));
@@ -394,13 +584,24 @@ function updateDisplay(mbps) {
     chart.data.labels.shift();
     chart.data.datasets[0].data.shift();
   }
+  totalSamples++;
 
-  if (markerNext) {
-    addLog(`⚑ МАРКЕР | ${mbps.toFixed(1)} Мбит/с`, 'mark');
-    markerNext = false;
+  // посегментный учёт: первые SEG_GRACE_MS секунды замера — разгон, не считаем.
+  // если тики встали больше чем на 5с (сон/фриз системы) — выкидываем и байты,
+  // и время этого провала, чтобы не перекашивать среднюю сегмента
+  const rawDt = nowT - lastTickT;
+  lastTickT = nowT;
+  if (curSeg && nowT - curSeg.startT > SEG_GRACE_MS) {
+    if (rawDt <= 5000) {
+      curSeg.bytes += delta;
+      curSeg.ms += rawDt;
+    }
+    if (winFull && mbps > curSeg.max) curSeg.max = mbps;
+    if (totalSamples % 10 === 0) renderSegs();
   }
 
-  chart.update('none');
+  // в фоне рисовать некому — дорисуем при возврате на вкладку
+  if (!document.hidden) chart.update('none');
 }
 
 // ─── Запуск воркеров ─────────────────────────────────────────────────────────
@@ -408,6 +609,8 @@ function spawnWorkers(totalStreams, bytes, isExtra = false) {
   const blob = new Blob([WORKER_SRC], { type: 'application/javascript' });
   const blobUrl = URL.createObjectURL(blob);
   const nWorkers = Math.ceil(totalStreams / STREAMS_PER_WORKER);
+  // раскатка старта: вся лесенка укладывается в ~3 секунды при любом числе воркеров
+  const staggerStep = isExtra ? 0 : Math.min(350, Math.floor(3000 / nWorkers));
   const list = [];
 
   for (let wid = 0; wid < nWorkers; wid++) {
@@ -415,199 +618,302 @@ function spawnWorkers(totalStreams, bytes, isExtra = false) {
       ? totalStreams - wid * STREAMS_PER_WORKER
       : STREAMS_PER_WORKER;
 
-    // Каждый воркер получает endpoint из ротации по wid
-    // → разные origin-ы = разные TCP-соединения = разные ноды в Clash round-robin
-    const epFn = ENDPOINTS[wid % ENDPOINTS.length];
-    const epBase = epFn(bytes);
+    // воркеры идут по кругу из 6 доменов → до 6 отдельных TCP-соединений
+    const ep = ENDPOINTS[wid % ENDPOINTS.length];
 
     const w = new Worker(blobUrl);
     w.onmessage = ({ data }) => {
       if (data.type === 'b') {
-        bytesLog.push({ t: performance.now(), b: data.n });
+        bytesLog.push({ t: data.t - dateOffset, b: data.n });
         totalBytes += data.n;
       }
     };
-    w.postMessage({ cmd: 'start', bytes, wid: isExtra ? 5000 + wid : wid, sperw, ep: epBase, delay: isExtra ? 0 : wid * 350 });
+    w.postMessage({ cmd: 'start', bytes, wid: isExtra ? 5000 + wid : wid, sperw, ep, delay: wid * staggerStep });
     list.push(w);
   }
 
   URL.revokeObjectURL(blobUrl);
-  return { list, nWorkers, totalStreams };
+  return { list, nWorkers, totalStreams, rampMs: nWorkers * staggerStep };
 }
 
-// ─── Тикер (100 мс) ──────────────────────────────────────────────────────────
-function startTicker() {
-  tickTimer = setInterval(() => {
-    if (!running) return;
-    const now     = performance.now();
-    const warmup  = now - startTime < WARMUP_MS;
-    const cutoff  = now - WINDOW_MS;
+function killWorkers(list) {
+  list.forEach(w => {
+    w.postMessage({ cmd: 'stop' });
+    setTimeout(() => w.terminate(), 500);
+  });
+}
 
-    while (bytesLog.length && bytesLog[0].t < cutoff) bytesLog.shift();
+// перезапуск потоков без остановки теста: старые соединения умирают,
+// новые открываются уже через новую ноду/протокол
+function restartStreams(reason) {
+  if (!running) return;
+  killWorkers(workers);
+  if (burstActive) {
+    // бёрст продолжал бы тянуть байты через старую ноду — гасим и его
+    killWorkers(burstW);
+    burstW = [];
+    if (burstTimer) { clearTimeout(burstTimer); burstTimer = null; }
+    burstActive = false;
+    el('status-dot').className = 'running';
+  }
+  const totalStreams = parseInt(el('stream-count').value);
+  const bytes        = parseInt(el('chunk-size').value);
+  const res          = spawnWorkers(totalStreams, bytes);
+  workers     = res.list;
+  workerCount = res.nWorkers;
+  streamCount = res.totalStreams;
+  warmupUntil = performance.now() + res.rampMs + 800;
+  el('wstreams-val').textContent = `${workerCount} / ${streamCount}`;
+  addLog(`перезапуск потоков — ${reason}`, 'info');
+}
 
-    if (warmup || bytesLog.length < 3) {
-      document.getElementById('speed-value').textContent = '…';
-      document.getElementById('speed-value').style.color = '#5a7a72';
-      document.getElementById('status-text').textContent = 'разгон TCP...';
-      return;
+// ─── Тик (метроном-воркер зовёт каждые 100 мс) ──────────────────────────────
+function tick() {
+  const now    = performance.now();
+  const cutoff = now - WINDOW_MS;
+  while (bytesLog.length && bytesLog[0].t < cutoff) bytesLog.shift();
+
+  // разгон: потоки ещё раскатываются лесенкой, данных мало — не пугаем нулём
+  if (now < warmupUntil && bytesLog.length < 3) {
+    el('speed-value').textContent = '…';
+    el('speed-value').style.color = '#5a7a72';
+    el('status-text').textContent = 'разгон...';
+    return;
+  }
+
+  let mbps = 0, winFull = false;
+  if (bytesLog.length >= 2) {
+    const wb   = bytesLog.reduce((s, e) => s + e.b, 0);
+    // пол на 250мс: сразу после обрыва окно почти пустое, без пола
+    // деление на крошечное время рисовало бы фальшивые пики
+    const raw  = now - bytesLog[0].t;
+    const span = Math.max(raw, 250);
+    mbps = (wb * 8) / (span / 1000 * 1e6);
+    winFull = raw >= WINDOW_MS * 0.7;
+  }
+
+  el('status-text').textContent = mbps < 1 ? 'нет трафика — обрыв или переключение?' : 'измерение...';
+  updateDisplay(mbps, winFull);
+
+  // детектор «обрыв → восстановление» = скорее всего переключили ноду.
+  // 2+ секунды тишины, потом трафик пошёл → новый замер сам собой.
+  // молчим в первые 12с замера и пока идёт разгон после рестарта потоков
+  if (mbps < 1) {
+    if (!stallSince) stallSince = now;
+    // затяжная тишина: соединения могли зависнуть намертво — переоткрываем
+    if (now - stallSince > 15000 && now > warmupUntil) {
+      restartStreams('трафик встал — переоткрываю соединения');
+      stallSince = now;   // если не поможет, повторим ещё через 15с
     }
-
-    document.getElementById('status-text').textContent = 'измерение...';
-    const wb      = bytesLog.reduce((s, e) => s + e.b, 0);
-    const wSec    = (now - bytesLog[0].t) / 1000;
-    const mbps    = (wb * 8) / (wSec * 1e6);
-    updateDisplay(mbps);
-  }, TICK_MS);
+  } else {
+    if (stallSince && now - stallSince >= 2000 && now > warmupUntil + 2000 &&
+        curSeg && now - curSeg.startT > 12000) {
+      maybeNewSegment('после обрыва — переключение?');
+    }
+    stallSince = 0;
+  }
 }
 
 // ─── Старт / стоп ────────────────────────────────────────────────────────────
 function startTest() {
   if (running) return;
-  running    = true;
-  bytesLog   = [];
-  totalBytes = 0;
-  startTime  = performance.now();
+  running   = true;
+  bytesLog  = [];
+  avgLog    = [];   // средняя за 60с и максимум — про текущий запуск
+  maxSpeed  = 0;
+  lastTotal = totalBytes;
+  lastTickT = performance.now();
+  stallSince = 0;
 
-  const totalStreams = parseInt(document.getElementById('stream-count').value);
-  const bytes       = parseInt(document.getElementById('chunk-size').value);
-  const res         = spawnWorkers(totalStreams, bytes);
+  const totalStreams = parseInt(el('stream-count').value);
+  const bytes        = parseInt(el('chunk-size').value);
+  const res          = spawnWorkers(totalStreams, bytes);
 
   workers     = res.list;
   workerCount = res.nWorkers;
-  streamCount = totalStreams;
-  document.getElementById('wstreams-val').textContent = `${workerCount} / ${streamCount}`;
+  streamCount = res.totalStreams;
+  warmupUntil = performance.now() + res.rampMs + 800;
+  el('wstreams-val').textContent = `${workerCount} / ${streamCount}`;
 
-  document.getElementById('btn-start').disabled = true;
-  document.getElementById('btn-stop').disabled  = false;
-  document.getElementById('btn-burst').disabled = false;
-  document.getElementById('status-dot').className = 'running';
+  el('btn-start').disabled  = true;
+  el('btn-stop').disabled   = false;
+  el('btn-burst').disabled  = false;
+  el('btn-marker').disabled = false;
+  el('status-dot').className = 'running';
 
-  addLog(`старт: ${workerCount} воркеров × ${STREAMS_PER_WORKER} потока = ${streamCount} потоков | endpoints чередуются: CF / httpbin / httpbingo`, 'info');
-  startTicker();
+  addLog(`старт: ${workerCount} воркеров × ${STREAMS_PER_WORKER} = ${streamCount} потоков по 6 доменам`, 'info');
+  maybeNewSegment('старт', lastIpInfo, true);
 }
 
 function stopTest() {
   running = false;
-  clearInterval(tickTimer);
-  [...workers, ...burstW].forEach(w => {
-    w.postMessage({ cmd: 'stop' });
-    setTimeout(() => w.terminate(), 600);
-  });
+  if (burstTimer) { clearTimeout(burstTimer); burstTimer = null; }
+  burstActive = false;
+  killWorkers(workers.concat(burstW));
   workers = []; burstW = [];
   bytesLog = [];
   workerCount = 0; streamCount = 0;
+  stallSince = 0;
+  curSeg = null;  // текущий замер уходит в общий рейтинг
 
-  document.getElementById('btn-start').disabled   = false;
-  document.getElementById('btn-stop').disabled    = true;
-  document.getElementById('btn-burst').disabled   = true;
-  document.getElementById('status-dot').className = '';
-  document.getElementById('status-text').textContent  = 'остановлен';
-  document.getElementById('speed-value').textContent  = '—';
-  document.getElementById('speed-value').style.color  = '#00d2aa';
-  document.getElementById('wstreams-val').textContent = '0 / 0';
+  el('btn-start').disabled   = false;
+  el('btn-stop').disabled    = true;
+  el('btn-burst').disabled   = true;
+  el('btn-marker').disabled  = true;
+  el('status-dot').className = '';
+  el('status-text').textContent  = 'остановлен';
+  el('speed-value').textContent  = '—';
+  el('speed-value').style.color  = '#00d2aa';
+  el('wstreams-val').textContent = '0 / 0';
   addLog('тест остановлен');
+  renderSegs();
 }
 
-// ─── Бёрст ───────────────────────────────────────────────────────────────────
-// Мгновенно открывает 64 дополнительных соединения на 8 секунд.
-// Цель: за короткое время прокрутить весь round-robin списка нод,
-// чтобы все ноды оказались под нагрузкой одновременно.
-let burstActive = false;
+// ─── Бёрст: +64 потока на 8 секунд ──────────────────────────────────────────
 function burst() {
   if (!running || burstActive) return;
   burstActive = true;
 
-  const bytes = Math.min(parseInt(document.getElementById('chunk-size').value), 25_000_000);
-  const res   = spawnWorkers(128, bytes, true);
+  const bytes = Math.min(parseInt(el('chunk-size').value), 25000000);
+  const res   = spawnWorkers(64, bytes, true);
   burstW      = res.list;
 
-  document.getElementById('status-dot').className = 'burst';
-  addLog(`⚡ БЁРСТ: +128 соединений на 10с — форсированный прокон всех нод`, 'mark');
+  el('status-dot').className = 'burst';
+  addLog('⚡ бёрст: +64 потока на 8 секунд', 'mark');
 
-  setTimeout(() => {
-    burstW.forEach(w => { w.postMessage({ cmd: 'stop' }); setTimeout(() => w.terminate(), 600); });
+  burstTimer = setTimeout(() => {
+    killWorkers(burstW);
     burstW = [];
     burstActive = false;
+    burstTimer = null;
     if (running) {
-      document.getElementById('status-dot').className = 'running';
+      el('status-dot').className = 'running';
       addLog('⚡ бёрст завершён — возврат к штатному режиму');
     }
-  }, 10000);
+  }, 8000);
 }
 
 // ─── Сброс ───────────────────────────────────────────────────────────────────
 function resetStats() {
-  history = []; maxSpeed = 0; totalBytes = 0;
-  document.getElementById('avg-val').textContent        = '—';
-  document.getElementById('max-val').textContent        = '—';
-  document.getElementById('downloaded-val').textContent = '0';
+  avgLog = []; maxSpeed = 0; totalBytes = 0; lastTotal = 0;
+  totalSamples = 0; chartMarks = [];
+  segments = []; curSeg = null; segCounter = 0;
+  el('avg-val').textContent        = '—';
+  el('max-val').textContent        = '—';
+  el('downloaded-val').textContent = '0';
   chart.data.labels = []; chart.data.datasets[0].data = [];
   chart.update();
-  document.getElementById('log').innerHTML = '';
+  el('log').textContent = '';
   addLog('статистика сброшена');
+  if (running) maybeNewSegment('старт', lastIpInfo, true);
+  renderSegs();
 }
 
-function logMarker() {
-  markerNext = true;
-  addLog('⚑ маркер будет поставлен при следующем сэмпле', 'mark');
-}
-
-// ─── IP detection (3 сек polling, 4 провайдера с fallback) ──────────────────
-let currentIP    = null;
-let providerIdx  = 0;
-
+// ─── Определение IP (3с, три сервиса, таймаут 2.5с на каждый) ───────────────
 const IP_PROVIDERS = [
-  async () => {
-    const d = await fetch('https://ipwho.is/', { cache: 'no-store' }).then(r => r.json());
+  async (sig) => {
+    const d = await fetch('https://ipwho.is/', { cache: 'no-store', signal: sig }).then(r => r.json());
     if (d.success === false) throw 0;
-    return { ip: d.ip, country: d.country, flag: d.flag?.emoji || '', org: d.connection?.org || d.connection?.isp || '', city: d.city || '' };
+    return { ip: d.ip, country: d.country, flag: (d.flag && d.flag.emoji) || flagFromCode(d.country_code),
+             org: (d.connection && (d.connection.org || d.connection.isp)) || '', city: d.city || '' };
   },
-  async () => {
-    const d = await fetch('https://ipapi.co/json/', { cache: 'no-store' }).then(r => r.json());
+  async (sig) => {
+    const d = await fetch('https://ipapi.co/json/', { cache: 'no-store', signal: sig }).then(r => r.json());
     if (d.error) throw 0;
-    return { ip: d.ip, country: d.country_name, flag: d.country_flag_emoji || '', org: d.org || '', city: d.city || '' };
+    return { ip: d.ip, country: d.country_name, flag: flagFromCode(d.country_code),
+             org: d.org || '', city: d.city || '' };
   },
-  async () => {
-    const d = await fetch('https://ipinfo.io/json', { cache: 'no-store' }).then(r => r.json());
-    return { ip: d.ip, country: d.country, flag: '', org: d.org || '', city: d.city || '' };
-  },
-  async () => {
-    const d = await fetch('https://ip-api.com/json/', { cache: 'no-store' }).then(r => r.json());
-    if (d.status === 'fail') throw 0;
-    return { ip: d.query, country: d.country, flag: '', org: d.isp || d.org || '', city: d.city || '' };
+  async (sig) => {
+    const d = await fetch('https://ipinfo.io/json', { cache: 'no-store', signal: sig }).then(r => r.json());
+    if (!d.ip) throw 0;
+    return { ip: d.ip, country: d.country, flag: flagFromCode(d.country),
+             org: d.org || '', city: d.city || '' };
   },
 ];
 
-async function fetchIP() {
-  for (let i = 0; i < IP_PROVIDERS.length; i++) {
-    const idx = (providerIdx + i) % IP_PROVIDERS.length;
-    try {
-      const d = await IP_PROVIDERS[idx]();
-      providerIdx = idx;
+let pendingIP = null;   // кандидат на смену IP — ждёт подтверждения вторым опросом
 
-      if (currentIP && currentIP !== d.ip) {
-        addLog(`⚑ IP изменился: ${currentIP} → ${d.ip} (${d.country}, ${(d.org || '').replace(/^AS\d+\s*/, '')})`, 'mark');
-        const el = document.getElementById('ip-addr');
-        el.classList.remove('changed');
-        void el.offsetWidth;
-        el.classList.add('changed');
-        setTimeout(() => el.classList.remove('changed'), 2500);
-      }
-
+function handleIpResult(d) {
+  d.org = (d.org || '').replace(/^AS\d+\s*/, '');
+  let changed = false;
+  if (!currentIP) {
+    currentIP = d.ip;
+  } else if (d.ip !== currentIP) {
+    // разные IP-сервисы могут по-разному видеть один и тот же выход,
+    // поэтому смену засчитываем только по двум опросам подряд
+    if (pendingIP === d.ip) {
+      changed = true;
+      addLog(`⚑ IP изменился: ${currentIP} → ${d.ip} (${d.country}, ${d.org})`, 'mark');
       currentIP = d.ip;
-      document.getElementById('ip-addr').textContent    = d.ip;
-      document.getElementById('ip-country').textContent = (d.flag ? d.flag + ' ' : '') + (d.country || '—');
-      document.getElementById('ip-org').textContent     = (d.org || '—').replace(/^AS\d+\s*/, '');
-      document.getElementById('ip-city').textContent    = d.city || '—';
-      document.getElementById('ip-status').textContent  = 'обновлено ' + ts();
-      return;
-    } catch (_) {}
+      pendingIP = null;
+      const a = el('ip-addr');
+      a.classList.remove('changed');
+      void a.offsetWidth;
+      a.classList.add('changed');
+      setTimeout(() => a.classList.remove('changed'), 2500);
+    } else {
+      pendingIP = d.ip;
+    }
+  } else {
+    pendingIP = null;
   }
-  document.getElementById('ip-status').textContent = 'ошибка всех IP API';
+  lastIpInfo = d;
+  el('ip-addr').textContent    = d.ip;
+  el('ip-country').textContent = (d.flag ? d.flag + ' ' : '') + (d.country || '—');
+  el('ip-org').textContent     = d.org || '—';
+  el('ip-city').textContent    = d.city || '—';
+  el('ip-status').textContent  = 'обновлено ' + ts();
+  if (changed && running) {
+    maybeNewSegment('смена IP', d);
+    // рестарт не зависит от того, создалась ли новая строка: после смены IP
+    // старые соединения могли остаться висеть на прежней ноде
+    if (el('auto-restart').checked) restartStreams('IP сменился — открываю соединения заново');
+  }
 }
 
+async function fetchIP() {
+  if (ipBusy) return;   // прошлый опрос ещё идёт — не наслаиваемся
+  ipBusy = true;
+  try {
+    for (let i = 0; i < IP_PROVIDERS.length; i++) {
+      const idx = (providerIdx + i) % IP_PROVIDERS.length;
+      try {
+        const d = await IP_PROVIDERS[idx](AbortSignal.timeout(2500));
+        providerIdx = idx;
+        handleIpResult(d);
+        return;
+      } catch (_) {}
+    }
+    el('ip-status').textContent = 'IP-сервисы недоступны';
+  } finally {
+    ipBusy = false;
+  }
+}
+
+addLog('Старт → переключай ноды/протоколы в Clash → таблица замеров соберётся сама', 'dim');
+addLog('Сменил протокол на том же сервере (IP тот же)? — жми «Новый замер»', 'dim');
+renderSegs();
 fetchIP();
-setInterval(fetchIP, 3000);  // 3с вместо 5с — быстрее замечаем смену IP при переключении группы
+
+// метроном живёт в воркере: обычный setInterval страницы браузер в фоновой
+// вкладке урезает вплоть до 1 раза в минуту, а сообщения из воркера
+// приходят стабильно — тест честно работает, даже когда открыт Clash
+const metronome = new Worker(URL.createObjectURL(new Blob(
+  ['setInterval(() => postMessage(1), ' + TICK_MS + ');'],
+  { type: 'application/javascript' })));
+metronome.onmessage = () => {
+  mTicks++;
+  if (mTicks % 30 === 0) fetchIP();   // раз в 3 секунды
+  if (running) tick();
+};
+
+// вернулись на вкладку — сразу дорисовать график и обновить IP
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    chart.update('none');
+    fetchIP();
+  }
+});
 </script>
 </body>
 </html>
