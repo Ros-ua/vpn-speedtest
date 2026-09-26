@@ -1,0 +1,11 @@
+{
+  "name": "vpn-speedtest",
+  "private": true,
+  "description": "Пробы для живого спидтеста (сам сайт сборки не требует)",
+  "scripts": {
+    "test": "node --test tests/*.test.js && python3 -m unittest discover -s tests -p 'test_*.py'"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

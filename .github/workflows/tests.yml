@@ -1,0 +1,15 @@
+# Пробы на каждый push и PR. Выкладку НЕ трогает и не блокирует:
+# просто у коммита появится зелёная галочка или красный крестик.
+name: tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # check_deploy-пробе нужна история git
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test

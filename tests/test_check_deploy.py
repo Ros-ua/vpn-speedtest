@@ -31,6 +31,7 @@ class FakePages:
 
     def close(self):
         self.srv.shutdown()
+        self.srv.server_close()
         self.dir.cleanup()
 
 
@@ -63,9 +64,7 @@ class CheckDeploy(unittest.TestCase):
 
     def test_fail_when_old_version_deployed(self):
         # на сайте старый index.html и нет version.json — так было до этой ветки
-        first = git('rev-list', '--max-parents=0', 'HEAD').decode().split()[0]
-        old = git('rev-list', '-n1', 'HEAD~0', '--', 'index.html').decode().strip()
-        prev = git('rev-list', '-n1', old + '~1', '--', 'index.html').decode().strip() or first
+        prev = git('rev-list', '-n2', 'HEAD', '--', 'index.html').decode().split()[1]
         code, out = run({'index.html': git('show', f'{prev}:index.html')}, 'HEAD')
         self.assertEqual(code, 1, out)
         self.assertIn(f'совпадает с коммитом {prev[:7]}', out)
