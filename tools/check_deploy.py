@@ -64,7 +64,11 @@ def main(argv=None):
     expect = git('rev-parse', a.expect) if a.expect else default_expect()
     ok = True
 
-    html = fetch(site)
+    try:
+        html = fetch(site)
+    except Exception as e:
+        print(f'FAIL сайт не открылся: {e}')
+        return 1
     same = commit_with_same_index(html)
     want = git('show', f'{expect}:index.html', binary=True)
     if html == want:
