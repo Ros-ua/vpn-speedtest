@@ -287,8 +287,8 @@ async function streamLoop(baseBytes, uid, ep, innerIdx) {
     // сторож: VPN может умереть молча, без ошибки сокета — тогда read()
     // повиснет навсегда. 15с без единого байта → рвём и заходим заново
     const ac = new AbortController();
-    let lastData = Date.now();
-    const dog = setInterval(() => { if (Date.now() - lastData > 15000) ac.abort(); }, 3000);
+    let lastData = performance.now();
+    const dog = setInterval(() => { if (performance.now() - lastData > 15000) ac.abort(); }, 3000);
     try {
       const res = await fetch(url, { cache: 'no-store', signal: ac.signal });
       if (!res.ok || !res.body) {
@@ -301,10 +301,12 @@ async function streamLoop(baseBytes, uid, ep, innerIdx) {
       while (running) {
         const { done, value } = await reader.read();
         if (done) break;
-        lastData = Date.now();
+        lastData = performance.now();
         // время ставим ЗДЕСЬ, в воркере: воркеры браузер не тормозит,
-        // даже если вкладка в фоне — метки остаются честными
-        if (value) self.postMessage({ type: 'b', n: value.length, t: Date.now() });
+        // даже если вкладка в фоне — метки остаются честными.
+        // Часы монотонные (timeOrigin + now), НЕ Date.now(): системное
+        // время может прыгнуть (синхронизация, сон) и увести все метки
+        if (value) self.postMessage({ type: 'b', n: value.length, t: performance.timeOrigin + performance.now() });
       }
       if (!running) { try { reader.cancel(); } catch (_) {} break; }
     } catch (e) {
@@ -341,8 +343,6 @@ let lastTotal    = 0;    // для посегментного учёта
 let lastTickT    = 0;    // реальное время прошлого тика (тики могут тормозиться)
 let avgLog       = [];   // { t, b } — байты по тикам, окно 60 секунд
 let maxSpeed     = 0;
-// пересчёт Date.now() воркера в шкалу performance.now() главного потока
-const dateOffset = Date.now() - performance.now();
 let mTicks       = 0;    // счётчик тиков метронома
 let warmupUntil  = 0;    // до этого момента показываем «разгон»
 let stallSince   = 0;    // с какого момента нет трафика (детектор обрыва)
@@ -527,6 +527,7 @@ function maybeNewSegment(cause, ipInfo, force) {
   const info = ipInfo || lastIpInfo || {};
   curSeg = {
     n: segCounter, startT: now, wall: ts(), cause,
+    graceUntil: now + SEG_GRACE_MS,   // до этого момента разгон, в среднюю не идёт
     bytes: 0, ms: 0, max: 0,
     ip: info.ip || '—', flag: info.flag || '', country: info.country || '', org: info.org || '',
   };
@@ -586,12 +587,12 @@ function updateDisplay(mbps, winFull) {
   }
   totalSamples++;
 
-  // посегментный учёт: первые SEG_GRACE_MS секунды замера — разгон, не считаем.
+  // посегментный учёт: разгон (начало замера и после перезапуска потоков) не считаем.
   // если тики встали больше чем на 5с (сон/фриз системы) — выкидываем и байты,
   // и время этого провала, чтобы не перекашивать среднюю сегмента
   const rawDt = nowT - lastTickT;
   lastTickT = nowT;
-  if (curSeg && nowT - curSeg.startT > SEG_GRACE_MS) {
+  if (curSeg && nowT > curSeg.graceUntil) {
     if (rawDt <= 5000) {
       curSeg.bytes += delta;
       curSeg.ms += rawDt;
@@ -624,7 +625,8 @@ function spawnWorkers(totalStreams, bytes, isExtra = false) {
     const w = new Worker(blobUrl);
     w.onmessage = ({ data }) => {
       if (data.type === 'b') {
-        bytesLog.push({ t: data.t - dateOffset, b: data.n });
+        // метка воркера → шкала performance.now() главного потока
+        bytesLog.push({ t: data.t - performance.timeOrigin, b: data.n });
         totalBytes += data.n;
       }
     };
@@ -663,6 +665,9 @@ function restartStreams(reason) {
   workerCount = res.nWorkers;
   streamCount = res.totalStreams;
   warmupUntil = performance.now() + res.rampMs + 800;
+  // новые потоки снова разгоняются лесенкой — этот провал не про ноду,
+  // в среднюю текущего замера его не берём (как и разгон в начале замера)
+  if (curSeg) curSeg.graceUntil = Math.max(curSeg.graceUntil, performance.now() + SEG_GRACE_MS);
   el('wstreams-val').textContent = `${workerCount} / ${streamCount}`;
   addLog(`перезапуск потоков — ${reason}`, 'info');
 }
