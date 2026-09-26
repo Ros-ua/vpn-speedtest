@@ -13,12 +13,19 @@ const TYPES = { '.html': 'text/html', '.js': 'application/javascript', '.json': 
 async function openPage(opts = {}) {
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: opts.viewport || { width: 1280, height: 800 } });
-  const state = { ip: opts.ip || { ip: '1.1.1.1', country: 'Germany', country_code: 'DE', city: 'Berlin', connection: { org: 'Node-A' } } };
+  const state = {
+    ip: opts.ip || { ip: '1.1.1.1', country: 'Germany', country_code: 'DE', city: 'Berlin', connection: { org: 'Node-A' } },
+    ipByHost: opts.ipByHost || null,
+    hits: {}
+  };
   const chunk = Buffer.alloc(opts.chunkBytes || 256 * 1024);
 
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url());
+    const host = url.hostname;
+    state.hits[host] = (state.hits[host] || 0) + 1;
     const cors = { 'access-control-allow-origin': '*' };
+
     if (url.href.startsWith(SITE)) {
       let rel = url.pathname.slice('/vpn-speedtest/'.length) || 'index.html';
       if (opts.files && rel in opts.files) {
@@ -30,14 +37,18 @@ async function openPage(opts = {}) {
       if (!fs.existsSync(p)) return route.fulfill({ status: 404, body: 'nf' });
       return route.fulfill({ status: 200, body: fs.readFileSync(p), contentType: TYPES[path.extname(rel)] || 'text/plain' });
     }
-    if (url.hostname === 'ipwho.is') {
-      return route.fulfill({ status: 200, headers: cors, contentType: 'application/json',
-        body: JSON.stringify(Object.assign({ success: true }, state.ip)) });
+
+    if (host === 'ipwho.is' || host === 'ipapi.co' || host === 'ipinfo.io') {
+      let res = state.ipByHost ? state.ipByHost[host] : (host === 'ipwho.is' ? state.ip : null);
+      if (res === null) return route.fulfill({ status: 429, headers: cors, body: '{"error":true,"success":false}' });
+      return route.fulfill({ status: 200, headers: cors, contentType: 'application/json', body: JSON.stringify(Object.assign({ success: true }, res)) });
     }
-    if (url.hostname === 'ipapi.co' || url.hostname === 'ipinfo.io') {
-      return route.fulfill({ status: 429, headers: cors, body: '{"error":true}' });
-    }
-    if (url.hostname === 'speed.cloudflare.com' || /jsdelivr\.net$|unpkg\.com$/.test(url.hostname)) {
+
+    if (host === 'speed.cloudflare.com' || /jsdelivr\.net$|unpkg\.com$/.test(host)) {
+      if (opts.sourceHang) return; // promise never resolves
+      if (opts.sourceStatus && opts.sourceStatus[host]) {
+        return route.fulfill({ status: opts.sourceStatus[host], headers: cors, body: 'err' });
+      }
       return route.fulfill({ status: 200, headers: cors, contentType: 'application/octet-stream', body: chunk });
     }
     return route.fulfill({ status: 404, body: 'blocked in test' });

@@ -46,12 +46,14 @@ header h1 { font-size: 12px; color: var(--accent); letter-spacing: 0.2em; text-t
 .main { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex: 1; min-height: 0; }
 
 @media (max-width: 820px) {
-  .main { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  html, body { height: auto; overflow: auto; }
+  .shell { height: auto; min-height: 100vh; }
+  .main { grid-template-columns: 1fr; grid-template-rows: auto auto; }
+  .ip-bar { padding: 6px 10px; gap: 12px; flex-wrap: wrap; }
   .right { max-height: 220px; }
   #speed-value { font-size: 52px !important; }
   .big-speed { padding: 10px 0 8px !important; }
   header h1 { font-size: 11px; }
-  .ip-bar { padding: 6px 10px; gap: 12px; }
   #ip-addr { font-size: 13px; }
 }
 
@@ -128,6 +130,12 @@ select option { background: var(--bg); }
 #log .entry .mark { color: var(--warn); }
 #log .entry .info { color: var(--purple); }
 #log .entry .dim { color: #2e4a44; }
+/* телефон: блок стоит ПОСЛЕ основных правил, иначе .chart-wrap { flex: 1; min-height: 0 }
+   выше его перебивает и график сжимается до пары десятков пикселей */
+@media (max-width: 820px) {
+  .left { min-height: auto; }
+  .chart-wrap { flex: none; height: 210px; min-height: 200px; }
+}
 </style>
 </head>
 <body>
@@ -266,6 +274,7 @@ const ENDPOINTS = [
 // ─── Код воркера (инлайн, через Blob URL) ────────────────────────────────────
 const WORKER_SRC = `
 let running = false;
+let curEp = null;
 
 // размер куска для Cloudflare варьируется ±30%, чтобы куски у разных
 // потоков не заканчивались одновременно (нет синхронных провалов)
@@ -274,10 +283,12 @@ function varyBytes(base, seed) {
   return Math.floor(base * v[seed % v.length]);
 }
 
-async function streamLoop(baseBytes, uid, ep, innerIdx) {
+async function streamLoop(baseBytes, uid, ignored_ep, innerIdx) {
   if (innerIdx > 0) await new Promise(r => setTimeout(r, innerIdx * 250));
   let iter = 0;
   while (running) {
+    const ep = curEp;
+    const host = ep.cf ? 'speed.cloudflare.com' : new URL(ep.base).hostname;
     let url = ep.cf
       ? 'https://speed.cloudflare.com/__down?bytes=' + varyBytes(baseBytes, uid + iter)
       : ep.base;
@@ -292,7 +303,7 @@ async function streamLoop(baseBytes, uid, ep, innerIdx) {
     try {
       const res = await fetch(url, { cache: 'no-store', signal: ac.signal });
       if (!res.ok || !res.body) {
-        // 4xx/5xx: тело ошибки НЕ считаем скачанным, ждём и пробуем снова
+        self.postMessage({ type: 'err', host, status: res.status });
         try { if (res.body) await res.body.cancel(); } catch (_) {}
         await new Promise(r => setTimeout(r, 1500));
         continue;
@@ -306,7 +317,7 @@ async function streamLoop(baseBytes, uid, ep, innerIdx) {
         // даже если вкладка в фоне — метки остаются честными.
         // Часы монотонные (timeOrigin + now), НЕ Date.now(): системное
         // время может прыгнуть (синхронизация, сон) и увести все метки
-        if (value) self.postMessage({ type: 'b', n: value.length, t: performance.timeOrigin + performance.now() });
+        if (value) self.postMessage({ type: 'b', n: value.length, t: performance.timeOrigin + performance.now(), host });
       }
       if (!running) { try { reader.cancel(); } catch (_) {} break; }
     } catch (e) {
@@ -320,13 +331,15 @@ async function streamLoop(baseBytes, uid, ep, innerIdx) {
 
 self.onmessage = async function ({ data }) {
   if (data.cmd === 'start') {
-    running = true;
+    running = true; curEp = data.ep;
     if (data.delay) await new Promise(r => setTimeout(r, data.delay));
     for (let i = 0; i < data.sperw; i++) {
-      streamLoop(data.bytes, data.wid * 1000 + i, data.ep, i);
+      streamLoop(data.bytes, data.wid * 1000 + i, null, i);
     }
   } else if (data.cmd === 'stop') {
     running = false;
+  } else if (data.cmd === 'ep') {
+    curEp = data.ep;
   }
 };
 `;
@@ -345,6 +358,7 @@ let avgLog       = [];   // { t, b } — байты по тикам, окно 60
 let maxSpeed     = 0;
 let mTicks       = 0;    // счётчик тиков метронома
 let warmupUntil  = 0;    // до этого момента показываем «разгон»
+let lastByteT    = 0;    // когда пришёл последний байт
 let stallSince   = 0;    // с какого момента нет трафика (детектор обрыва)
 let workerCount  = 0;
 let streamCount  = 0;
@@ -358,9 +372,11 @@ let segCounter = 0;
 
 // IP
 let currentIP   = null;
+let currentIpSrc = null;
 let lastIpInfo  = null;
 let providerIdx = 0;
 let ipBusy      = false;
+const srcState = new Map(); // host -> { fails, lastLog, dead }
 
 // ─── Chart.js ────────────────────────────────────────────────────────────────
 // вертикальные пунктирные линии в местах начала замеров
@@ -620,14 +636,33 @@ function spawnWorkers(totalStreams, bytes, isExtra = false) {
       : STREAMS_PER_WORKER;
 
     // воркеры идут по кругу из 6 доменов → до 6 отдельных TCP-соединений
-    const ep = ENDPOINTS[wid % ENDPOINTS.length];
+    const live = ENDPOINTS.filter(e => !isDead(e));
+    const ep = live[wid % live.length];
 
-    const w = new Worker(blobUrl);
+    const w = new Worker(blobUrl); w.ep = ep;
     w.onmessage = ({ data }) => {
+      // остановленный воркер живёт ещё 500 мс до terminate: его запоздалые
+      // байты и ошибки — про прошлый запуск или прежнюю ноду, не считаем
+      if (!workers.includes(w) && !burstW.includes(w)) return;
       if (data.type === 'b') {
-        // метка воркера → шкала performance.now() главного потока
+        lastByteT = Math.max(lastByteT, data.t - performance.timeOrigin);
+        const host = data.host; const st = srcState.get(host);
+        if (st) st.fails = 0;
         bytesLog.push({ t: data.t - performance.timeOrigin, b: data.n });
         totalBytes += data.n;
+      } else if (data.type === 'err') {
+        const { host, status } = data; let st = srcState.get(host);
+        if (!st) { st = { fails: 0, lastLog: -Infinity, dead: false }; srcState.set(host, st); }
+        st.fails++; const now = performance.now();
+        if (now - st.lastLog >= 60000) { addLog(`источник ${host} отвечает ошибкой ${status}`, 'mark'); st.lastLog = now; }
+        const live = ENDPOINTS.filter(e => !isDead(e));
+        if (st.fails >= 3 && !st.dead && live.length > 1) {
+          st.dead = true; addLog(`источник ${host} исключён до конца теста — потоки переехали на другие`, 'mark');
+          const nextLive = ENDPOINTS.filter(e => !isDead(e));
+          [...workers, ...burstW].forEach((wrk, idx) => {
+            if (epHost(wrk.ep) === host) { wrk.ep = nextLive[idx % nextLive.length]; wrk.postMessage({ cmd: 'ep', ep: wrk.ep }); }
+          });
+        }
       }
     };
     w.postMessage({ cmd: 'start', bytes, wid: isExtra ? 5000 + wid : wid, sperw, ep, delay: wid * staggerStep });
@@ -644,6 +679,12 @@ function killWorkers(list) {
     setTimeout(() => w.terminate(), 500);
   });
 }
+
+// источник трафика отвечает ошибкой (4xx/5xx) 3 раза подряд — исключаем его
+// до конца теста, потоки переезжают на живые домены. Сетевые исключения сюда
+// не идут: при обрыве VPN падают все домены сразу, это не беда источника
+function epHost(ep) { return ep.cf ? 'speed.cloudflare.com' : new URL(ep.base).hostname; }
+function isDead(ep) { const st = srcState.get(epHost(ep)); return !!(st && st.dead); }
 
 // перезапуск потоков без остановки теста: старые соединения умирают,
 // новые открываются уже через новую ноду/протокол
@@ -665,6 +706,10 @@ function restartStreams(reason) {
   workerCount = res.nWorkers;
   streamCount = res.totalStreams;
   warmupUntil = performance.now() + res.rampMs + 800;
+  // сторож обрыва считает заново от перезапуска: иначе он мерил бы возраст
+  // прежней тишины, и новые соединения получили бы 3 с вместо 15
+  stallSince = 0;
+  lastByteT  = Math.max(lastByteT, performance.now());
   // новые потоки снова разгоняются лесенкой — этот провал не про ноду,
   // в среднюю текущего замера его не берём (как и разгон в начале замера)
   if (curSeg) curSeg.graceUntil = Math.max(curSeg.graceUntil, performance.now() + SEG_GRACE_MS);
@@ -697,14 +742,17 @@ function tick() {
     winFull = raw >= WINDOW_MS * 0.7;
   }
 
-  el('status-text').textContent = mbps < 1 ? 'нет трафика — обрыв или переключение?' : 'измерение...';
+  // обрыв = ни одного байта 2+ секунды. По скорости (< 1 Мбит/с) судить нельзя:
+  // медленная нода тогда «обрывалась» и перезапускалась каждые 15 с
+  const silent = now - lastByteT >= 2000;
+  el('status-text').textContent = silent ? 'нет трафика — обрыв или переключение?' : 'измерение...';
   updateDisplay(mbps, winFull);
 
   // детектор «обрыв → восстановление» = скорее всего переключили ноду.
   // 2+ секунды тишины, потом трафик пошёл → новый замер сам собой.
   // молчим в первые 12с замера и пока идёт разгон после рестарта потоков
-  if (mbps < 1) {
-    if (!stallSince) stallSince = now;
+  if (silent) {
+    if (!stallSince) stallSince = lastByteT;   // тишина началась с последнего байта
     // затяжная тишина: соединения могли зависнуть намертво — переоткрываем
     if (now - stallSince > 15000 && now > warmupUntil) {
       restartStreams('трафик встал — переоткрываю соединения');
@@ -723,7 +771,9 @@ function tick() {
 function startTest() {
   if (running) return;
   running   = true;
+  srcState.clear();
   bytesLog  = [];
+  lastByteT = performance.now();
   avgLog    = [];   // средняя за 60с и максимум — про текущий запуск
   maxSpeed  = 0;
   lastTotal = totalBytes;
@@ -838,29 +888,28 @@ const IP_PROVIDERS = [
 
 let pendingIP = null;   // кандидат на смену IP — ждёт подтверждения вторым опросом
 
-function handleIpResult(d) {
+function handleIpResult(d, src) {
   d.org = (d.org || '').replace(/^AS\d+\s*/, '');
   let changed = false;
   if (!currentIP) {
-    currentIP = d.ip;
+    currentIP = d.ip; currentIpSrc = src;
   } else if (d.ip !== currentIP) {
-    // разные IP-сервисы могут по-разному видеть один и тот же выход,
-    // поэтому смену засчитываем только по двум опросам подряд
-    if (pendingIP === d.ip) {
-      changed = true;
-      addLog(`⚑ IP изменился: ${currentIP} → ${d.ip} (${d.country}, ${d.org})`, 'mark');
-      currentIP = d.ip;
-      pendingIP = null;
-      const a = el('ip-addr');
-      a.classList.remove('changed');
-      void a.offsetWidth;
-      a.classList.add('changed');
-      setTimeout(() => a.classList.remove('changed'), 2500);
+    if (src !== currentIpSrc) {
+      currentIP = d.ip; currentIpSrc = src; pendingIP = null;
+      addLog(`IP-сервис сменился — новый адрес ${d.ip} запомнил без нового замера`, 'dim');
     } else {
-      pendingIP = d.ip;
+      if (pendingIP === d.ip) {
+        changed = true;
+        addLog(`⚑ IP изменился: ${currentIP} → ${d.ip} (${d.country}, ${d.org})`, 'mark');
+        currentIP = d.ip; currentIpSrc = src; pendingIP = null;
+        const a = el('ip-addr'); a.classList.remove('changed'); void a.offsetWidth; a.classList.add('changed');
+        setTimeout(() => a.classList.remove('changed'), 2500);
+      } else {
+        pendingIP = d.ip;
+      }
     }
   } else {
-    pendingIP = null;
+    pendingIP = null; currentIpSrc = src;
   }
   lastIpInfo = d;
   el('ip-addr').textContent    = d.ip;
@@ -885,7 +934,7 @@ async function fetchIP() {
       try {
         const d = await IP_PROVIDERS[idx](AbortSignal.timeout(2500));
         providerIdx = idx;
-        handleIpResult(d);
+        handleIpResult(d, idx);
         return;
       } catch (_) {}
     }
@@ -925,7 +974,8 @@ const metronome = new Worker(URL.createObjectURL(new Blob(
   { type: 'application/javascript' })));
 metronome.onmessage = () => {
   mTicks++;
-  if (mTicks % 30 === 0) fetchIP();   // раз в 3 секунды
+  const ipInterval = running ? 30 : 200;
+  if (mTicks % ipInterval === 0) fetchIP();
   if (running) tick();
 };
 
