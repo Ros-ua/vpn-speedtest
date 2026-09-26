@@ -895,6 +895,23 @@ async function fetchIP() {
   }
 }
 
+// ─── Какая версия выложена ───────────────────────────────────────────────────
+// version.json при каждой выкладке собирает GitHub Pages (Jekyll) и вписывает
+// коммит, из которого собран сайт. Показываем его в шапке рядом с версией:
+// так по самой странице видно, что реально выложено (API Pages может врать).
+// Не вышло (открыто локально, Jekyll не подставил) — шапку не трогаем.
+fetch('version.json', { cache: 'no-store' })
+  .then(r => r.ok ? r.json() : Promise.reject(r.status))
+  .then(v => {
+    const sha = String(v.sha || '');
+    if (!/^[0-9a-f]{7,40}$/.test(sha)) throw sha;
+    const ver = el('ver');
+    ver.textContent += ' · ' + sha.slice(0, 7);
+    ver.title = 'выложен коммит ' + sha + (v.built ? ', собран ' + v.built : '');
+    ver.dataset.sha = sha;
+  })
+  .catch(() => { el('ver').dataset.sha = 'unknown'; });
+
 addLog('Старт → переключай ноды/протоколы в Clash → таблица замеров соберётся сама', 'dim');
 addLog('Сменил протокол на том же сервере (IP тот же)? — жми «Новый замер»', 'dim');
 renderSegs();
