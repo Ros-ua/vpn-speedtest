@@ -1,0 +1,8 @@
+# Сборка GitHub Pages (Jekyll): служебное — пробы, скрипты проверки, файлы npm — на сайт не идёт.
+exclude:
+  - tests/
+  - tools/
+  - node_modules/
+  - package.json
+  - package-lock.json
+  - run_tests.sh

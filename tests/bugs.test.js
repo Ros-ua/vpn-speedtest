@@ -42,3 +42,44 @@ test('разгон после перезапуска потоков не идё�
     assert.strictEqual(added, 0, 'байты разгона попали в среднюю замера');
   } finally { await s.close(); }
 });
+
+// Проба выше подменяет часы только странице, и откат ВОРКЕРНОЙ половины
+// починки (метка снова по Date.now()) её не красит — проверено подсадкой.
+// Прыжок системных часов виден и ВОРКЕРАМ: отводим Date.now внутри каждого воркера на 60 с НАЗАД.
+const shiftWorkers = `(() => {
+  const B = window.Blob;
+  window.Blob = function (parts, opts) {
+    if (opts && /javascript/.test(opts.type || '')) parts = ['(()=>{const r=Date.now;Date.now=()=>r()-60000})();'].concat(parts);
+    return new B(parts, opts);
+  };
+  window.Blob.prototype = B.prototype;
+})();`;
+test('скорость не ломается, если часы прыгнули назад и в ВОРКЕРАХ', async () => {
+  const s = await openPage({ initScript: shiftWorkers });
+  try {
+    await s.page.click('#btn-start');
+    await s.page.waitForFunction(
+      () => parseFloat(document.getElementById('speed-value').textContent) > 1, null, { timeout: 8000 });
+  } finally { await s.close(); }
+});
+
+// Проба выше зеленеет, пока идёт первый 5-секундный разгон замера, и до
+// починки в restartStreams не доходит (подсадка её не красит). Здесь
+// разгон замера уже прошёл — работает только продление в restartStreams.
+test('перезапуск потоков после разгона замера — его разгон тоже не идёт в среднюю', async () => {
+  const s = await openPage();
+  try {
+    await s.page.click('#btn-start');
+    const added = await s.page.evaluate(() => {
+      curSeg.startT -= 20000;
+      if ('graceUntil' in curSeg) curSeg.graceUntil = performance.now() - 1;  // разгон замера ПРОШЁЛ
+      const b0 = curSeg.bytes;
+      restartStreams('проба');
+      lastTickT = performance.now() - 100;
+      totalBytes += 1e6;
+      updateDisplay(10, true);
+      return curSeg.bytes - b0;
+    });
+    assert.strictEqual(added, 0, 'байты разгона попали в среднюю: ' + added);
+  } finally { await s.close(); }
+});

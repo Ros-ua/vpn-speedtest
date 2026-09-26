@@ -43,6 +43,18 @@ test('без Jekyll (сырой шаблон) — шапка не ломаетс
   } finally { await s.close(); }
 });
 
+// Jekyll сработал, но build_revision пустой — это правильный JSON с sha "".
+// Проба выше такой случай не задевает (сырой шаблон — вообще не JSON), и
+// откат проверки sha её не красил — проверено подсадкой.
+test('Jekyll не вписал коммит (sha пустой) — шапка не врёт', async () => {
+  const s = await openPage({ files: { 'version.json': '{"sha": "", "built": "2026-09-26T00:00:00+00:00"}' } });
+  try {
+    await s.page.waitForFunction(() => document.getElementById('ver').dataset.sha, null, { timeout: 5000 });
+    assert.strictEqual(await s.page.getAttribute('#ver', 'data-sha'), 'unknown');
+    assert.doesNotMatch(await s.page.textContent('#ver'), /·\s*$/);
+  } finally { await s.close(); }
+});
+
 // GitHub Pages прогоняет через Liquid все файлы с шапкой --- и ВСЕ .md
 // (даже без шапки). Случайные {{ / {% там = кривая страница или
 // упавшая сборка = выкладка не прошла. И index.html без шапки: иначе
