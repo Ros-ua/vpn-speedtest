@@ -37,17 +37,27 @@ def sources():
 
 
 def check(url, want_bytes):
-    """Источник трафика: CORS есть, размер ИЗВЕСТЕН и не меньше want_bytes, тело не пустое."""
-    req = urllib.request.Request(url, headers={'Origin': ORIGIN, 'User-Agent': UA, 'Range': 'bytes=0-1023'})
+    """Источник трафика: CORS есть, отдаёт БЕЗ сжатия, размер ИЗВЕСТЕН и не меньше want_bytes, тело не пустое.
+
+    Запрос — ровно как у страницы: Range: bytes=0-, а на запрос с Range браузер сам ставит
+    Accept-Encoding: identity (спецификация Fetch; снято с живого Chromium 27.09 через CDP).
+    Сжатый ответ = FAIL: браузер его распакует, и страница насчитает больше байт, чем прошло
+    по сети (27.09: ×3,5).
+    """
+    req = urllib.request.Request(url, headers={'Origin': ORIGIN, 'User-Agent': UA, 'Range': 'bytes=0-',
+                                               'Accept-Encoding': 'identity'})
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
             cors = r.headers.get('Access-Control-Allow-Origin')
+            enc = r.headers.get('Content-Encoding')
             size = r.headers.get('Content-Range', '').split('/')[-1] or r.headers.get('Content-Length', '')
             body = r.read(2048)
     except Exception as e:
         return False, f'ошибка: {e}'
     if cors not in ('*', ORIGIN):
         return False, f'нет CORS (Access-Control-Allow-Origin={cors})'
+    if enc and enc.lower() != 'identity':
+        return False, f'отдаёт сжатым ({enc}) даже с Range — скорость на этом источнике будет завышена'
     # неизвестный размер («*» или нет заголовка) — это не «ок», а «не проверено»
     if not size.isdigit():
         return False, f'размер не известен ({size or "нет заголовка"})'
@@ -78,7 +88,9 @@ def check_ip(url):
 def main():
     ok = True
     for url in sources():
-        good, msg = check(url, 1_000_000 if 'cloudflare' in url else 10_000_000)
+        # 5 МБ, не 10: часть узлов jsDelivr на Range+identity отдаёт несжатые байты, но пишет в
+        # Content-Range длину СЖАТОЙ версии (9,26 МБ из 32) — поток просто перезапросит, байты честные
+        good, msg = check(url, 1_000_000 if 'cloudflare' in url else 5_000_000)
         ok &= good
         print(('OK  ' if good else 'FAIL'), url, '—', msg)
     for url in ('https://ipwho.is/', 'https://ipapi.co/json/', 'https://ipinfo.io/json'):

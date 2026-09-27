@@ -301,7 +301,12 @@ async function streamLoop(baseBytes, uid, ignored_ep, innerIdx) {
     let lastData = performance.now();
     const dog = setInterval(() => { if (performance.now() - lastData > 15000) ac.abort(); }, 3000);
     try {
-      const res = await fetch(url, { cache: 'no-store', signal: ac.signal });
+      // Range: bytes=0- — просим файл БЕЗ сжатия: на запрос с Range браузер сам ставит
+      // Accept-Encoding: identity (спецификация Fetch). Иначе jsDelivr и unpkg отдают br/gzip,
+      // браузер распаковывает, и мы считали бы распакованные байты: скорость выходила ~втрое выше
+      // настоящей (замер 27.09 в Chromium: 38 Мбит/с на экране против 11 по сети). Заголовок
+      // CORS-безопасный — предзапроса нет; ответ 206 — тоже res.ok
+      const res = await fetch(url, { cache: 'no-store', signal: ac.signal, headers: { Range: 'bytes=0-' } });
       if (!res.ok || !res.body) {
         self.postMessage({ type: 'err', host, status: res.status });
         try { if (res.body) await res.body.cancel(); } catch (_) {}

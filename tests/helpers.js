@@ -16,7 +16,8 @@ async function openPage(opts = {}) {
   const state = {
     ip: opts.ip || { ip: '1.1.1.1', country: 'Germany', country_code: 'DE', city: 'Berlin', connection: { org: 'Node-A' } },
     ipByHost: opts.ipByHost || null,
-    hits: {}
+    hits: {},
+    sourceRanges: {}   // заголовок Range запросов к источникам трафика → сколько раз ('' — без Range)
   };
   const chunk = Buffer.alloc(opts.chunkBytes || 256 * 1024);
 
@@ -49,6 +50,13 @@ async function openPage(opts = {}) {
       if (opts.sourceStatus && opts.sourceStatus[host]) {
         return route.fulfill({ status: opts.sourceStatus[host], headers: cors, body: 'err' });
       }
+      // какой Range пришёл с запросом к источнику: без него jsDelivr и unpkg отдают файл сжатым,
+      // браузер распаковывает, и страница насчитывает втрое больше, чем прошло по сети.
+      // Само сжатие стенд воспроизвести НЕ может: route.fulfill отдаёт тело браузеру как есть,
+      // без распаковки (проверено 27.09 — прямой fetch получил сырой gzip). Поэтому здесь
+      // сторожим поведение страницы, а ответ серверов на Range сверяет tools/check_sources.py.
+      const range = route.request().headers()['range'] || '';
+      state.sourceRanges[range] = (state.sourceRanges[range] || 0) + 1;
       return route.fulfill({ status: 200, headers: cors, contentType: 'application/octet-stream', body: chunk });
     }
     return route.fulfill({ status: 404, body: 'blocked in test' });

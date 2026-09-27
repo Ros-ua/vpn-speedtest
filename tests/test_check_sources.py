@@ -48,6 +48,22 @@ class CheckSources(unittest.TestCase):
             good, msg = cs.check('https://example/x', 10_000_000)
         self.assertTrue(good, msg)
 
+    def test_compressed_file_is_not_ok(self):
+        # сжатый ответ браузер распакует — страница насчитает больше, чем прошло по сети
+        with fake(**{'Access-Control-Allow-Origin': '*', 'Content-Range': 'bytes 0-1023/32129114',
+                     'Content-Encoding': 'br'}):
+            good, msg = cs.check('https://example/x', 10_000_000)
+        self.assertFalse(good, msg)
+
+    def test_asks_like_the_page(self):
+        # запрос обязан быть таким же, как у страницы: Range: bytes=0- и (как ставит браузер
+        # на запрос с Range) Accept-Encoding: identity
+        with fake(**{'Access-Control-Allow-Origin': '*', 'Content-Range': 'bytes 0-1023/32129114'}) as m:
+            cs.check('https://example/x', 10_000_000)
+        req = m.call_args[0][0]
+        self.assertEqual(req.get_header('Range'), 'bytes=0-')
+        self.assertEqual(req.get_header('Accept-encoding'), 'identity')
+
     def test_ip_service_error_body_is_not_ok(self):
         # адрес в ответе есть (так ipapi.co отвечает при лимите) — отвергать надо по error,
         # иначе проба краснела бы и без проверки error: просто из-за отсутствия ip
