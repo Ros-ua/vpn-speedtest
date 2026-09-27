@@ -58,9 +58,19 @@ class CheckDeploy(unittest.TestCase):
     def test_ok_when_site_matches_commit(self):
         sha = git('rev-parse', 'HEAD').decode().strip()
         files = {'index.html': git('show', 'HEAD:index.html'),
+                 'chart.umd.js': git('show', 'HEAD:chart.umd.js'),
                  'version.json': json.dumps({'sha': sha, 'built': 'x'}).encode()}
         code, out = run(files, 'HEAD')
         self.assertEqual(code, 0, out)
+
+    def test_fail_when_chart_missing(self):
+        # index.html и версия верные, но библиотеки графика нет — страница упадёт на new Chart
+        sha = git('rev-parse', 'HEAD').decode().strip()
+        files = {'index.html': git('show', 'HEAD:index.html'),
+                 'version.json': json.dumps({'sha': sha, 'built': 'x'}).encode()}
+        code, out = run(files, 'HEAD')
+        self.assertEqual(code, 1, out)
+        self.assertIn('chart.umd.js не открылся', out)
 
     def test_fail_when_old_version_deployed(self):
         # на сайте старый index.html и нет version.json — так было до этой ветки

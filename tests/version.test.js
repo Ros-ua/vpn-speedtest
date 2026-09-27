@@ -8,9 +8,9 @@ const { openPage, ROOT } = require('./helpers');
 const SHA = '0123456789abcdef0123456789abcdef01234567';
 
 // то, что сделает Jekyll на Pages: срежет шапку и подставит значения
-function renderLikePages(sha) {
-  const src = fs.readFileSync(path.join(ROOT, 'version.json'), 'utf8');
-  const m = src.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
+function renderLikePages(sha, src = fs.readFileSync(path.join(ROOT, 'version.json'), 'utf8')) {
+  // \r?\n: на Windows с autocrlf файл приходит с CRLF — проба падала ложно (находка Astra 28.09)
+  const m = src.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n([\s\S]*)$/);
   assert.ok(m, 'version.json без шапки --- ... --- : Jekyll его не обработает');
   return m[1]
     .replace(/\{\{\s*site\.github\.build_revision\s*\}\}/g, sha)
@@ -21,6 +21,12 @@ test('version.json после подстановки — правильный JS
   const out = renderLikePages(SHA);
   assert.doesNotMatch(out, /\{\{|\{%/, 'осталась неподставленная переменная');
   assert.strictEqual(JSON.parse(out).sha, SHA);
+});
+
+// та же проба на Windows-клоне с autocrlf: файл приходит с CRLF — разбор не должен ломаться
+test('version.json с переводами строк CRLF тоже разбирается', () => {
+  const crlf = fs.readFileSync(path.join(ROOT, 'version.json'), 'utf8').replace(/\r?\n/g, '\r\n');
+  assert.strictEqual(JSON.parse(renderLikePages(SHA, crlf)).sha, SHA);
 });
 
 test('шапка показывает выложенный коммит (#ver)', async () => {

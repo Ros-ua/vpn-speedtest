@@ -19,6 +19,9 @@ import sys
 import urllib.request
 
 SITE = 'https://ros-ua.github.io/vpn-speedtest/'
+# без этих файлов страница не работает (new Chart падает) — сверяем их с git так же, как index.html
+# (находка вычитки Astra 28.09: раньше прибор говорил OK при невыложенном chart.umd.js)
+ASSETS = ('chart.umd.js',)
 
 
 def git(*args, binary=False):
@@ -77,6 +80,19 @@ def main(argv=None):
         ok = False
         where = f'совпадает с коммитом {same[:7]}' if same else 'не совпадает ни с одним коммитом'
         print(f'FAIL index.html на сайте НЕ тот, что в {expect[:7]} ({where})')
+
+    for name in ASSETS:
+        try:
+            got = fetch(site + name)
+        except Exception as e:
+            ok = False
+            print(f'FAIL {name} не открылся: {e}')
+            continue
+        if got == git('show', f'{expect}:{name}', binary=True):
+            print(f'OK   {name} на сайте = {name} коммита {expect[:7]}')
+        else:
+            ok = False
+            print(f'FAIL {name} на сайте НЕ тот, что в {expect[:7]}')
 
     try:
         v = json.loads(fetch(site + 'version.json'))
